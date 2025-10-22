@@ -13,8 +13,26 @@ interface MessageBubbleProps {
 const MessageBubble = ({ message }: MessageBubbleProps) => {
   const isUser = message.role === "user";
 
+  // 🧩 Smart formatting for cleaner output
+  const formattedContent = message.content
+    // Replace double asterisks with double new lines
+    .replace(/\*\*/g, "\n\n")
+    // Ensure numbered points have line breaks before them
+    .replace(/(\d+)\.\s*/g, "\n$1. ")
+    // Split by newlines and map to paragraphs
+    .split(/\n+/)
+    .map((line, i) => (
+      <p key={i} className="mb-3 last:mb-0 whitespace-pre-wrap leading-relaxed">
+        {line.trim()}
+      </p>
+    ));
+
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+    <div
+      className={`flex ${
+        isUser ? "justify-end" : "justify-start"
+      } animate-in fade-in slide-in-from-bottom-4 duration-500`}
+    >
       <div
         className={`max-w-[80%] rounded-2xl px-6 py-4 ${
           isUser
@@ -22,10 +40,14 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
             : "bg-card border border-border shadow-sm"
         }`}
       >
-        <p className={`text-sm leading-relaxed ${isUser ? "text-white" : "text-foreground"}`}>
-          {message.content}
-        </p>
-        
+        <div
+          className={`text-sm leading-relaxed ${
+            isUser ? "text-white" : "text-foreground"
+          }`}
+        >
+          {formattedContent}
+        </div>
+
         {!isUser && message.source && (
           <a
             href={message.source}
