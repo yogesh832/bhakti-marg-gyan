@@ -4,7 +4,8 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   source?: string;
-}
+} 
+  
 
 interface MessageBubbleProps {
   message: Message;

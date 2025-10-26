@@ -6,11 +6,12 @@ const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY || "AIzaSyCHPK49xwufC1PeINKrmTK_CRLf9U9SitM";
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-// 🧩 Helper: get available Gemini model
+// 🧩 Helper: choose best Gemini model
 const getAvailableModel = async () => {
   try {
     const res = await axios.get(
-      "https://generativelanguage.googleapis.com/v1/models?key=" + GEMINI_API_KEY
+      "https://generativelanguage.googleapis.com/v1/models?key=" +
+        GEMINI_API_KEY
     );
     const models = res.data.models.map((m) => m.name);
     const preferred =
@@ -23,52 +24,8 @@ const getAvailableModel = async () => {
   }
 };
 
-// 🧠 Safe Gemini call with retry, fallback & timeout
-const safeAskGemini = async (prompt, retries = 3, timeout = 20000) => {
-  const modelNames = [
-    "models/gemini-2.5-flash",
-    "models/gemini-1.5-flash",
-    "models/gemini-1.5-pro",
-  ];
-
-  for (const modelName of modelNames) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-
-      for (let i = 0; i < retries; i++) {
-        try {
-          console.log(`[${new Date().toLocaleTimeString()}] 🔹 Using ${modelName}`);
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-          const result = await model.generateContent(prompt, {
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-          return { text: result.response.text(), model: modelName };
-        } catch (err) {
-          if (err.name === "AbortError") {
-            console.warn(`⏳ ${modelName} timed out after ${timeout / 1000}s.`);
-          } else if (err.status === 503 && i < retries - 1) {
-            console.warn(
-              `⚠️ ${modelName} overloaded. Retrying in ${2 * (i + 1)}s...`
-            );
-            await new Promise((res) => setTimeout(res, 2000 * (i + 1)));
-          } else {
-            throw err;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(`❌ ${modelName} failed: ${err.message}`);
-      if (modelName === modelNames[modelNames.length - 1]) throw err;
-    }
-  }
-};
-
-// 🧩 Split long text into manageable chunks
-const chunkText = (text, size = 10000) => {
+// 🪄 Helper: split long text into 12k-character chunks
+const splitIntoChunks = (text, size = 12000) => {
   const chunks = [];
   for (let i = 0; i < text.length; i += size) {
     chunks.push(text.slice(i, i + size));
@@ -76,30 +33,7 @@ const chunkText = (text, size = 10000) => {
   return chunks;
 };
 
-// 🧠 Summarize large transcripts in chunks
-const summarizeLargeTranscripts = async (combinedTranscripts) => {
-  const chunks = chunkText(combinedTranscripts);
-  const summaries = [];
-
-  console.log(`🪶 Summarizing ${chunks.length} chunks...`);
-
-  for (let i = 0; i < chunks.length; i++) {
-    const summaryPrompt = `
-Summarize the following part of a devotional transcript in 5–7 bullet points.
-Focus on key teachings and main ideas only.
-
-Part ${i + 1}:
-${chunks[i]}
-`;
-
-    const { text: summary } = await safeAskGemini(summaryPrompt);
-    summaries.push(`🕉️ Summary ${i + 1}:\n${summary}`);
-  }
-
-  return summaries.join("\n\n");
-};
-
-// 🎯 Ask Gemini using all transcripts
+// 🎯 Ask Gemini using all transcripts (multi-language + chunked + consistent)
 const askFromAllTranscripts = async (req, res) => {
   try {
     const { question } = req.body;
@@ -112,70 +46,106 @@ const askFromAllTranscripts = async (req, res) => {
     const videos = await Video.find({ status: "done" }).select(
       "transcript url videoId"
     );
-
     if (!videos || videos.length === 0) {
       return res.status(404).json({ error: "No transcripts found." });
     }
 
-    // 🔍 Merge all transcripts into one big context
+    // 🔍 Merge all transcripts
     const combinedTranscripts = videos
-      .filter((v) => v.transcript && v.transcript.trim().length > 0)
       .map(
         (v, i) =>
-          `Video ${i + 1} [${v.videoId || "no-id"}]:\n${v.transcript.slice(
+          `Video ${i + 1} [${v.videoId || "no-id"}]:\n${v.transcript?.slice(
             0,
             3000
           )}`
       )
       .join("\n\n---\n\n");
 
-    // ✨ Summarize if too long
-    let context;
-    console.log(combinedTranscripts.length)
-    if (combinedTranscripts.length > 12000) {
-      console.log("🪶 Transcripts too long — summarizing before asking...");
-      context = await summarizeLargeTranscripts(combinedTranscripts);
-    } else {
-      context = combinedTranscripts;
-    }
+    const chunks = splitIntoChunks(combinedTranscripts, 12000);
+    const modelName = await getAvailableModel();
+    const model = genAI.getGenerativeModel({ model: modelName });
 
-    // 🧘‍♂️ Build the main prompt
-    const prompt = `
-You are a spiritual assistant that answers questions from devotional YouTube video transcripts.
-Analyze all transcripts (or summaries) below and find the most relevant part to answer clearly and beautifully.
+    let partialAnswers = [];
 
-Guidelines:
-- Use only information found in the content below.
-- Respond in the same language as the transcripts (Hindi if Hindi, English if English).
-- Format answer with **bold headings**, bullet points, and clear separation.
-- If the question is not answered anywhere, reply:
-  "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।"
+    // Process each chunk sequentially
+    for (let i = 0; i < chunks.length; i++) {
+      const prompt = `
+You are a multilingual spiritual assistant trained on devotional YouTube video transcripts.
+-basic is you are assistent of premand jii who is great saint of this era and you are asnswering in same way he ans from his transcription of oficial youtube channel
+Your task:
+9.Give only  meaningful content — **no introductions, no disclaimers, no sources, no formatting instructions**.
 
-Below are the available transcripts (summarized if very long):
+1. Detect the language of the user's question (English, Devanagari Hindi, or Roman Hindi).
+2. Internally translate or interpret it to understand the meaning (for example: "love" = "prem").
+3. Find the answer only from the given transcript data below.
+4. Respond in the **same language** the question was asked in — even if the transcript language is different.
+   - If English → reply in English (translate your reasoning into English).
+   - If Roman Hindi → reply in Devanagari Hindi.
+   - If Devanagari Hindi → reply in Devanagari Hindi.
+5. Maintain a devotional, calm, and spiritual tone.
+6. Use only information found in the transcripts.
+7. If no relevant information exists, say exactly:
+   "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।"
+ 
+Transcript Data (Part ${i + 1}/${chunks.length}):
+${chunks[i]}
 
-${context}
-
-Now answer this question:
-Q: ${question}
+Question:
+${question}
 `;
 
-    // 🧠 Ask Gemini safely
-    const { text: answer, model } = await safeAskGemini(prompt);
+      console.log(`🧠 Processing chunk ${i + 1}/${chunks.length}...`);
+      const result = await model.generateContent(prompt);
+      const text = result.response.text()?.trim();
+      if (text) partialAnswers.push(text);
+    }
+
+    // 🧩 If all chunks say “not found”, return that directly
+    const allNotFound = partialAnswers.every((ans) =>
+      ans.includes("इस प्रश्न का स्पष्ट उल्लेख")
+    );
+    if (allNotFound) {
+      return res.json({
+        success: true,
+        totalVideos: videos.length,
+        totalChunks: chunks.length,
+        model: modelName,
+        answer:
+          "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।",
+      });
+    }
+
+    // ✨ Combine answers properly (keep diversity and remove duplicates)
+    const uniqueAnswers = [...new Set(partialAnswers)];
+    const combinedPrompt = `
+You are a multilingual assistant. Below are partial answers extracted from different parts of devotional transcripts.
+
+Please merge them into one single, beautiful, and non-repetitive final answer.
+- Keep language consistent (Hindi/English).
+- Retain all meaningful information.
+- Avoid repeating "not found" lines unless necessary.
+- Format cleanly with **bold headings**, bullet points, and proper spacing.
+
+Partial Answers:
+${uniqueAnswers.join("\n\n")}
+
+Now produce the final unified answer:
+`;
+
+    const finalResult = await model.generateContent(combinedPrompt);
+    const finalAnswer = finalResult.response.text()?.trim();
 
     res.json({
       success: true,
       totalVideos: videos.length,
-      model,
-      answer,
+      totalChunks: chunks.length,
+      model: modelName,
+      answer:
+        finalAnswer ||
+        "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।",
     });
   } catch (err) {
     console.error("❌ Error in askFromAllTranscripts:", err);
-    if (err.status === 503) {
-      return res.status(503).json({
-        error:
-          "Gemini servers are currently overloaded. Please try again in a few moments.",
-      });
-    }
     res.status(500).json({
       error: err.message || "Internal server error",
     });
