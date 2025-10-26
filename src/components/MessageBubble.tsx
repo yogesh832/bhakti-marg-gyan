@@ -1,11 +1,13 @@
+"use client";
+
+import { motion } from "framer-motion";
 import { ExternalLink } from "lucide-react";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   source?: string;
-} 
-  
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -16,34 +18,37 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
 
   // 🧩 Smart formatting for cleaner output
   const formattedContent = message.content
-    // Replace double asterisks with double new lines
-    .replace(/\*\*/g, "\n\n")
-    // Ensure numbered points have line breaks before them
-    .replace(/(\d+)\.\s*/g, "\n$1. ")
-    // Split by newlines and map to paragraphs
+    .replace(/\*\*/g, "\n\n") // Double asterisks → new lines
+    .replace(/(\d+)\.\s*/g, "\n$1. ") // Proper spacing for numbered points
     .split(/\n+/)
     .map((line, i) => (
-      <p key={i} className="mb-3 last:mb-0 whitespace-pre-wrap leading-relaxed">
+      <p
+        key={i}
+        className="mb-3 last:mb-0 whitespace-pre-wrap leading-relaxed tracking-wide"
+      >
         {line.trim()}
       </p>
     ));
 
   return (
-    <div
-      className={`flex ${
-        isUser ? "justify-end" : "justify-start"
-      } animate-in fade-in slide-in-from-bottom-4 duration-500`}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className={`flex ${isUser ? "justify-end" : "justify-start"} my-2`}
     >
       <div
-        className={`max-w-[80%] rounded-2xl px-6 py-4 ${
+        className={`max-w-[80%] rounded-2xl px-6 py-4 shadow-lg ${
           isUser
-            ? "bg-gradient-to-br from-primary to-accent text-white"
-            : "bg-card border border-border shadow-sm"
+            ? // 🌟 Golden gradient for user messages
+              "bg-gradient-to-br from-yellow-400 via-amber-500 to-yellow-600 text-white shadow-yellow-400/30"
+            : // ✨ Soft glowing assistant bubble
+              "bg-gradient-to-b from-yellow-50/10 to-transparent border border-yellow-400/30 backdrop-blur-sm text-yellow-100"
         }`}
       >
         <div
           className={`text-sm leading-relaxed ${
-            isUser ? "text-white" : "text-foreground"
+            isUser ? "text-white" : "text-yellow-100"
           }`}
         >
           {formattedContent}
@@ -54,14 +59,14 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
             href={message.source}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mt-3 text-xs text-muted-foreground hover:text-primary transition-colors"
+            className="inline-flex items-center gap-1 mt-3 text-xs text-yellow-300 hover:text-yellow-400 transition-colors"
           >
             <ExternalLink className="w-3 h-3" />
             Source: YouTube Teaching
           </a>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

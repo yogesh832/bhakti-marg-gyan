@@ -6,7 +6,7 @@ const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY || "AIzaSyCHPK49xwufC1PeINKrmTK_CRLf9U9SitM";
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-// 🧩 Helper: choose best Gemini model
+// 🧩 Helper: choose best available Gemini model
 const getAvailableModel = async () => {
   try {
     const res = await axios.get(
@@ -24,7 +24,7 @@ const getAvailableModel = async () => {
   }
 };
 
-// 🪄 Helper: split long text into 12k-character chunks
+// 🪄 Split transcript into chunks for safe processing
 const splitIntoChunks = (text, size = 12000) => {
   const chunks = [];
   for (let i = 0; i < text.length; i += size) {
@@ -33,10 +33,10 @@ const splitIntoChunks = (text, size = 12000) => {
   return chunks;
 };
 
-// 🎯 Ask Gemini using all transcripts (multi-language + chunked + consistent)
+// 🎯 Main: Ask Gemini using all transcripts + preferences
 const askFromAllTranscripts = async (req, res) => {
   try {
-    const { question } = req.body;
+    const { question, language = "auto", tone = "premand" } = req.body;
 
     if (!question) {
       return res.status(400).json({ error: "Question is required" });
@@ -67,26 +67,36 @@ const askFromAllTranscripts = async (req, res) => {
 
     let partialAnswers = [];
 
-    // Process each chunk sequentially
+    // 🔁 Process each chunk
     for (let i = 0; i < chunks.length; i++) {
       const prompt = `
-You are a multilingual spiritual assistant trained on devotional YouTube video transcripts.
--basic is you are assistent of premand jii who is great saint of this era and you are asnswering in same way he ans from his transcription of oficial youtube channel
-Your task:
-9.Give only  meaningful content — **no introductions, no disclaimers, no sources, no formatting instructions**.
+You are a multilingual spiritual assistant trained on devotional YouTube transcripts.
+You are the humble digital assistant of *Premanand Ji Maharaj*, a great saint of this era.
+You are **not** Premanand Ji — you are his respectful digital assistant who explains his teachings without personal attachment.
 
-1. Detect the language of the user's question (English, Devanagari Hindi, or Roman Hindi).
-2. Internally translate or interpret it to understand the meaning (for example: "love" = "prem").
-3. Find the answer only from the given transcript data below.
-4. Respond in the **same language** the question was asked in — even if the transcript language is different.
-   - If English → reply in English (translate your reasoning into English).
-   - If Roman Hindi → reply in Devanagari Hindi.
-   - If Devanagari Hindi → reply in Devanagari Hindi.
-5. Maintain a devotional, calm, and spiritual tone.
-6. Use only information found in the transcripts.
-7. If no relevant information exists, say exactly:
+🕉️ User Preferences:
+- Preferred response language: ${language}
+- Response tone: ${tone}
+
+Guidelines:
+1. Detect the user's question language automatically.
+2. If the user explicitly requests another language (e.g., "Tamil me batao"), reply in that requested language.
+3. If not specified, reply in the preferred language (${language}) or auto-detect if set to "auto".
+4. Keep the tone:
+   - "premand": devotional, peaceful, based on his teachings — **without personal addressing**.
+   - "brief": short and clear.
+   - "detailed": explanatory but simple.
+5. Use **simple and easy-to-understand words** in every language — avoid overly Sanskritized or complex phrases.
+   - Example: instead of "प्रस्फुटित", use "उभरता है"  
+     instead of "अनुभूति", use "अनुभव"  
+     instead of "श्रवण", use "सुनना"  
+6. Focus on clarity and feeling, not heavy grammar.
+7. Never use personal phrases like "my dear child", "beloved one", etc.
+8. Use only transcript information.
+9. If no answer found, say exactly:
    "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।"
- 
+10. Keep answers short (3–6 lines), loving, and simple for everyone to understand.
+
 Transcript Data (Part ${i + 1}/${chunks.length}):
 ${chunks[i]}
 
@@ -100,7 +110,7 @@ ${question}
       if (text) partialAnswers.push(text);
     }
 
-    // 🧩 If all chunks say “not found”, return that directly
+    // 🧩 Handle “not found” cases
     const allNotFound = partialAnswers.every((ans) =>
       ans.includes("इस प्रश्न का स्पष्ट उल्लेख")
     );
@@ -115,24 +125,23 @@ ${question}
       });
     }
 
-    // ✨ Combine answers properly (keep diversity and remove duplicates)
+    // ✨ Merge partial answers into one final message
     const uniqueAnswers = [...new Set(partialAnswers)];
-    const combinedPrompt = `
-You are a multilingual assistant. Below are partial answers extracted from different parts of devotional transcripts.
+    const mergePrompt = `
+You are a multilingual assistant. Below are partial answers from different transcript chunks.
 
-Please merge them into one single, beautiful, and non-repetitive final answer.
-- Keep language consistent (Hindi/English).
-- Retain all meaningful information.
-- Avoid repeating "not found" lines unless necessary.
-- Format cleanly with **bold headings**, bullet points, and proper spacing.
+Combine them into one clean, non-repetitive, and spiritually beautiful final answer.
+- Maintain the same tone (${tone})
+- Respond in the preferred or requested language (${language})
+- Avoid unnecessary repetition or "not found" statements.
 
 Partial Answers:
 ${uniqueAnswers.join("\n\n")}
 
-Now produce the final unified answer:
+Now produce the unified final answer:
 `;
 
-    const finalResult = await model.generateContent(combinedPrompt);
+    const finalResult = await model.generateContent(mergePrompt);
     const finalAnswer = finalResult.response.text()?.trim();
 
     res.json({
