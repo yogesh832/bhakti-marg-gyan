@@ -4,8 +4,6 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const { execSync } = require("child_process");
 const cors = require("cors"); // ✅ added
-// const { Queue, Worker } = require("bullmq");
-// const IORedis = require("ioredis");
 
 const ingestRouter = require("./controllers/ingestController");
 const askRouter = require("./controllers/askController");
