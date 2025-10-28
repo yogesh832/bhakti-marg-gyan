@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: bhakti-marg-gyan
+    env: node
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm run start
+    nodeVersion: 20.11.1
