@@ -6,6 +6,7 @@ import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle } f
 
 // MessageBubble Component
 const MessageBubble = ({ message }) => {
+  const [showSources, setShowSources] = useState(false);
   const isUser = message.role === "user";
   
   return (
@@ -25,35 +26,40 @@ const MessageBubble = ({ message }) => {
           {message.content}
         </div>
         
-        {/* Source Attribution */}
+        {/* Source Attribution - Dropdown */}
         {message.sources && message.sources.length > 0 && (
           <div className="mt-3 pt-3 border-t border-yellow-400/20">
-            <div className="text-xs text-yellow-400/90 font-semibold mb-2">
-              📺 प्रवचन स्रोत (Source):
-            </div>
-            {message.sources.map((source, idx) => (
-              <div key={idx} className="mb-2 last:mb-0">
-                <a 
-                  href={source.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-xs text-yellow-300 hover:text-yellow-100 underline block"
-                >
-                  🎥 {source.title || `Video ${source.videoId}`}
-                </a>
-                {source.quote && (
-                  <div className="text-xs text-yellow-400/60 italic mt-1 ml-4">
-                    "{source.quote.substring(0, 100)}..."
+            <button
+              onClick={() => setShowSources(!showSources)}
+              className="flex items-center justify-between w-full text-xs text-yellow-400/90 font-semibold hover:text-yellow-300 transition-colors"
+            >
+              <span>📺 प्रवचन स्रोत (Source) - {message.sources.length} video{message.sources.length > 1 ? 's' : ''}</span>
+              <span className="text-yellow-400/60">
+                {showSources ? '▲' : '▼'}
+              </span>
+            </button>
+            
+            {showSources && (
+              <div className="mt-2 space-y-2 animate-in slide-in-from-top duration-200">
+                {message.sources.map((source, idx) => (
+                  <div key={idx} className="mb-2 last:mb-0 pl-2 border-l-2 border-yellow-400/30">
+                    <a 
+                      href={source.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-yellow-300 hover:text-yellow-100 underline block"
+                    >
+                      🎥 {source.title || `Video ${source.videoId}`}
+                    </a>
+                    {source.quote && (
+                      <div className="text-xs text-yellow-400/60 italic mt-1 ml-4">
+                        "{source.quote.substring(0, 100)}..."
+                      </div>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-        
-        {message.providers && (
-          <div className="text-xs text-yellow-400/50 mt-2">
-            AI: {message.providers}
+            )}
           </div>
         )}
       </div>
