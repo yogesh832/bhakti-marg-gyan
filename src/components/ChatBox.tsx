@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle } from "lucide-react";
-import { toast } from "sonner";
 
 // MessageBubble Component
 const MessageBubble = ({ message }) => {
@@ -25,9 +24,36 @@ const MessageBubble = ({ message }) => {
         <div className="whitespace-pre-wrap break-words leading-relaxed">
           {message.content}
         </div>
-        {message.source && (
-          <div className="text-xs text-yellow-400/70 mt-2 italic">
-            — {message.source}
+        
+        {/* Source Attribution */}
+        {message.sources && message.sources.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-yellow-400/20">
+            <div className="text-xs text-yellow-400/90 font-semibold mb-2">
+              📺 प्रवचन स्रोत (Source):
+            </div>
+            {message.sources.map((source, idx) => (
+              <div key={idx} className="mb-2 last:mb-0">
+                <a 
+                  href={source.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-yellow-300 hover:text-yellow-100 underline block"
+                >
+                  🎥 {source.title || `Video ${source.videoId}`}
+                </a>
+                {source.quote && (
+                  <div className="text-xs text-yellow-400/60 italic mt-1 ml-4">
+                    "{source.quote.substring(0, 100)}..."
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {message.providers && (
+          <div className="text-xs text-yellow-400/50 mt-2">
+            AI: {message.providers}
           </div>
         )}
       </div>
@@ -44,32 +70,34 @@ const ChatBox = () => {
   const [isListening, setIsListening] = useState(false);
   const [currentSpeakingIndex, setCurrentSpeakingIndex] = useState(null);
   const [autoPlay, setAutoPlay] = useState(true);
+  const [showToast, setShowToast] = useState(null);
 
   // Preferences
   const [language, setLanguage] = useState("hindi");
   const [tone, setTone] = useState("premand");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [voiceRate, setVoiceRate] = useState(1.0);
-  const [voicePitch, setVoicePitch] = useState(1.0);
+  const [voiceGender, setVoiceGender] = useState("male");
   
   const chatEndRef = useRef(null);
-  const recognitionRef = useRef(null);
-  const utteranceRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const speechSynthRef = useRef(null);
 
-  // Language to voice locale mapping
-  const getVoiceLocale = (lang) => {
-    const localeMap = {
-      hindi: 'hi-IN',
-      english: 'en-US',
-      tamil: 'ta-IN',
-      malayalam: 'ml-IN',
-      bengali: 'bn-IN',
-      gujarati: 'gu-IN',
-      kannada: 'kn-IN',
-      auto: 'hi-IN'
-    };
-    return localeMap[lang] || 'hi-IN';
+  // Toast notification helper
+  const toast = {
+    success: (msg) => setShowToast({ type: 'success', message: msg }),
+    error: (msg) => setShowToast({ type: 'error', message: msg }),
+    info: (msg) => setShowToast({ type: 'info', message: msg }),
+    warning: (msg) => setShowToast({ type: 'warning', message: msg })
   };
+
+  // Auto-hide toast
+  useEffect(() => {
+    if (showToast) {
+      const timer = setTimeout(() => setShowToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showToast]);
 
   // Load preferences + chat history
   useEffect(() => {
@@ -90,30 +118,25 @@ const ChatBox = () => {
         setLanguage(prefs.language || "hindi");
         setTone(prefs.tone || "premand");
         setVoiceEnabled(prefs.voiceEnabled !== undefined ? prefs.voiceEnabled : true);
-        setVoiceRate(prefs.voiceRate || 1.0);
-        setVoicePitch(prefs.voicePitch || 1.0);
+        setVoiceGender(prefs.voiceGender || "male");
         setAutoPlay(prefs.autoPlay !== undefined ? prefs.autoPlay : true);
       } catch (e) {
         console.error("Failed to load preferences", e);
       }
     }
 
-    // Initialize speech recognition
-    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = getVoiceLocale(language);
+    // Load voices on mount
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        console.log('Voices loaded:', window.speechSynthesis.getVoices().length);
+      };
+      // Trigger voice loading
+      window.speechSynthesis.getVoices();
     }
 
-    // Cleanup on unmount
     return () => {
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
+      if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
-      }
-      if (recognitionRef.current && isListening) {
-        recognitionRef.current.stop();
       }
     };
   }, []);
@@ -131,16 +154,10 @@ const ChatBox = () => {
       language, 
       tone, 
       voiceEnabled, 
-      voiceRate, 
-      voicePitch,
+      voiceGender,
       autoPlay 
     }));
-    
-    // Update speech recognition language
-    if (recognitionRef.current) {
-      recognitionRef.current.lang = getVoiceLocale(language);
-    }
-  }, [language, tone, voiceEnabled, voiceRate, voicePitch, autoPlay]);
+  }, [language, tone, voiceEnabled, voiceGender, autoPlay]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -170,129 +187,329 @@ const ChatBox = () => {
     }
   };
 
-  // Text-to-Speech function with language support
-  const speakText = (text, messageIndex) => {
+  // Get language locale
+  const getLanguageLocale = (lang) => {
+    const localeMap = {
+      hindi: 'hi-IN',
+      english: 'en-US',
+      tamil: 'ta-IN',
+      malayalam: 'ml-IN',
+      bengali: 'bn-IN',
+      gujarati: 'gu-IN',
+      kannada: 'kn-IN',
+      auto: 'hi-IN'
+    };
+    return localeMap[lang] || 'hi-IN';
+  };
+
+  // Text-to-Speech function
+  const speakText = async (text, messageIndex) => {
     if (!voiceEnabled) {
       toast.error("Voice is disabled. Enable it in preferences.");
       return;
     }
 
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (!window.speechSynthesis) {
       toast.error("Text-to-speech not supported in your browser.");
       return;
     }
 
-    // Stop any ongoing speech
-    window.speechSynthesis.cancel();
+    try {
+      // Stop any ongoing speech
+      window.speechSynthesis.cancel();
 
-    // Clean text for better speech
-    const cleanText = text
-      .replace(/\*\*/g, '')
-      .replace(/#{1,6}\s/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/🙏|🕉️|✨|💫|🌟/g, '');
-
-    utteranceRef.current = new SpeechSynthesisUtterance(cleanText);
-    
-    // Set language
-    utteranceRef.current.lang = getVoiceLocale(language);
-    utteranceRef.current.rate = voiceRate;
-    utteranceRef.current.pitch = voicePitch;
-    utteranceRef.current.volume = 1.0;
-
-    // Try to find a voice that matches the language
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(voice => 
-      voice.lang.startsWith(getVoiceLocale(language).split('-')[0])
-    );
-    
-    if (preferredVoice) {
-      utteranceRef.current.voice = preferredVoice;
-    }
-
-    utteranceRef.current.onstart = () => {
       setIsSpeaking(true);
       setCurrentSpeakingIndex(messageIndex);
-    };
 
-    utteranceRef.current.onend = () => {
-      setIsSpeaking(false);
-      setCurrentSpeakingIndex(null);
-      utteranceRef.current = null;
-    };
+      // Clean text for better speech - keep it simple and flat
+      const cleanText = text
+        .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold but keep text
+        .replace(/#{1,6}\s/g, '') // Remove headers
+        .replace(/\n{3,}/g, '. ') // Replace multiple newlines with periods for pauses
+        .replace(/\n/g, '. ') // Replace single newlines with periods
+        .replace(/🙏|🕉️|✨|💫|🌟/g, '') // Remove emojis
+        .replace(/\.\s*\./g, '.') // Remove double periods
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
 
-    utteranceRef.current.onerror = (event) => {
-      console.error('Speech error:', event);
-      setIsSpeaking(false);
-      setCurrentSpeakingIndex(null);
-      utteranceRef.current = null;
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      speechSynthRef.current = utterance;
       
-      if (event.error !== 'interrupted') {
-        toast.error("Failed to speak text. Please try again.");
+      // Set language
+      const locale = getLanguageLocale(language);
+      utterance.lang = locale;
+      utterance.rate = 1.0; // Normal speed, not too slow
+      utterance.pitch = 0.9; // Slightly lower but more natural
+      utterance.volume = 1.0;
+      
+      // Remove all expressiveness for flat, monotone delivery
+      if (utterance.hasOwnProperty('voice')) {
+        // These properties help reduce expression in some browsers
+        utterance.rate = 1.0; // Natural pace
+        utterance.pitch = 0.9; // Neutral, slightly lower
       }
-    };
 
-    window.speechSynthesis.speak(utteranceRef.current);
-    toast.success("🔊 Playing audio...");
+      // Get voices
+      let voices = window.speechSynthesis.getVoices();
+      
+      // If no voices loaded yet, wait a bit
+      if (voices.length === 0) {
+        await new Promise(resolve => {
+          window.speechSynthesis.onvoiceschanged = () => {
+            voices = window.speechSynthesis.getVoices();
+            resolve();
+          };
+          // Fallback timeout
+          setTimeout(resolve, 100);
+        });
+      }
+
+      console.log('Available voices:', voices.length);
+      console.log('All voices:', voices.map(v => `${v.name} (${v.lang})`));
+
+      // Find the best voice
+      let selectedVoice = null;
+      const langCode = locale.split('-')[0];
+
+      if (voiceGender === 'male') {
+        // Priority 1: Look for Hindi male voices first
+        const hindiMalePatterns = [
+          'hindi male', 'male hindi', 'ravi', 'hemant', 'prabhat'
+        ];
+        
+        for (const pattern of hindiMalePatterns) {
+          selectedVoice = voices.find(v => 
+            v.name.toLowerCase().includes(pattern) &&
+            v.lang.toLowerCase().includes('hi')
+          );
+          if (selectedVoice) {
+            console.log('✅ Found Hindi male voice:', selectedVoice.name);
+            break;
+          }
+        }
+
+        // Priority 2: Any Hindi voice that's not female
+        if (!selectedVoice) {
+          const femalePatterns = [
+            'female', 'woman', 'aditi', 'swara', 'lekha', 'heera'
+          ];
+          
+          const hindiNonFemaleVoices = voices.filter(v => 
+            v.lang.toLowerCase().includes('hi') &&
+            !femalePatterns.some(p => v.name.toLowerCase().includes(p))
+          );
+          
+          if (hindiNonFemaleVoices.length > 0) {
+            selectedVoice = hindiNonFemaleVoices[0];
+            console.log('✅ Selected Hindi non-female voice:', selectedVoice.name);
+          }
+        }
+
+        // Priority 3: English male voices (will speak Hindi with accent)
+        if (!selectedVoice) {
+          const englishMalePatterns = ['male', 'daniel', 'thomas', 'james', 'david'];
+          
+          for (const pattern of englishMalePatterns) {
+            selectedVoice = voices.find(v => 
+              v.lang.toLowerCase().includes('en') &&
+              v.name.toLowerCase().includes(pattern)
+            );
+            if (selectedVoice) {
+              console.log('✅ Found English male voice for Hindi:', selectedVoice.name);
+              break;
+            }
+          }
+        }
+
+        // Priority 4: Filter out ALL female voices from any language
+        if (!selectedVoice) {
+          const femalePatterns = [
+            'female', 'woman', 'aditi', 'swara', 'lekha', 'heera', 
+            'zira', 'samantha', 'victoria', 'karen', 'moira',
+            'veena', 'tessa', 'fiona', 'susan', 'allison'
+          ];
+          
+          const allNonFemaleVoices = voices.filter(v => 
+            !femalePatterns.some(p => v.name.toLowerCase().includes(p))
+          );
+          
+          if (allNonFemaleVoices.length > 0) {
+            // Prefer ones with 'male' or neutral names
+            selectedVoice = allNonFemaleVoices.find(v => 
+              v.name.toLowerCase().includes('male') || 
+              v.name.toLowerCase().includes('google') ||
+              v.name.toLowerCase().includes('default')
+            ) || allNonFemaleVoices[0];
+            
+            console.log('✅ Selected non-female voice:', selectedVoice.name);
+          }
+        }
+      } else {
+        // Look for female voices
+        const femalePatterns = ['female', 'woman', 'aditi', 'swara', 'lekha', 'samantha', 'victoria'];
+        for (const pattern of femalePatterns) {
+          selectedVoice = voices.find(v => 
+            v.lang.toLowerCase().includes(langCode) &&
+            v.name.toLowerCase().includes(pattern)
+          );
+          if (selectedVoice) {
+            console.log('✅ Found female voice:', selectedVoice.name);
+            break;
+          }
+        }
+      }
+
+      // Priority 5: Fallback to any voice in the language
+      if (!selectedVoice) {
+        selectedVoice = voices.find(v => v.lang.toLowerCase().includes(langCode));
+        console.log('⚠️ Using fallback language voice:', selectedVoice?.name);
+      }
+
+      // Last resort: use first available voice
+      if (!selectedVoice && voices.length > 0) {
+        selectedVoice = voices[0];
+        console.log('⚠️ Using first available voice:', selectedVoice.name);
+      }
+
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+        console.log('🔊 Using voice:', selectedVoice.name, '|', selectedVoice.lang);
+        toast.success(`🔊 Speaking: ${selectedVoice.name.substring(0, 20)}...`);
+      } else {
+        console.warn('⚠️ No voice found, using default');
+        toast.warning("Using default voice");
+      }
+
+      utterance.onstart = () => {
+        console.log('Speech started');
+      };
+
+      utterance.onend = () => {
+        console.log('Speech ended');
+        setIsSpeaking(false);
+        setCurrentSpeakingIndex(null);
+        speechSynthRef.current = null;
+      };
+
+      utterance.onerror = (event) => {
+        console.error('Speech error:', event.error);
+        setIsSpeaking(false);
+        setCurrentSpeakingIndex(null);
+        speechSynthRef.current = null;
+        
+        if (event.error === 'not-allowed') {
+          toast.error("Speech permission denied. Please enable in browser settings.");
+        } else if (event.error !== 'interrupted' && event.error !== 'canceled') {
+          toast.error(`Speech error: ${event.error}`);
+        }
+      };
+
+      // Chrome workaround: pause and resume to prevent cutoff
+      utterance.onpause = () => {
+        console.log('Speech paused');
+      };
+
+      utterance.onresume = () => {
+        console.log('Speech resumed');
+      };
+
+      // Speak
+      window.speechSynthesis.speak(utterance);
+      
+      // Chrome workaround: keep synthesis alive
+      const intervalId = setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+          clearInterval(intervalId);
+        } else {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }
+      }, 14000);
+
+      utterance.onend = () => {
+        clearInterval(intervalId);
+        setIsSpeaking(false);
+        setCurrentSpeakingIndex(null);
+        speechSynthRef.current = null;
+      };
+
+    } catch (error) {
+      console.error('Speech error:', error);
+      setIsSpeaking(false);
+      setCurrentSpeakingIndex(null);
+      toast.error("Failed to speak. Please try again.");
+    }
   };
 
   // Stop speaking
   const stopSpeaking = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-      setCurrentSpeakingIndex(null);
-      utteranceRef.current = null;
     }
+    setIsSpeaking(false);
+    setCurrentSpeakingIndex(null);
+    speechSynthRef.current = null;
+    toast.info("Speech stopped");
   };
 
   // Speech-to-Text (Voice Input)
   const startListening = () => {
-    if (!recognitionRef.current) {
-      toast.error("Speech recognition not supported in your browser. Try Chrome or Edge.");
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      toast.error("Speech recognition not supported. Try Chrome or Edge.");
       return;
     }
 
     try {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      
+      recognition.lang = getLanguageLocale(language);
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
       setIsListening(true);
-      recognitionRef.current.start();
       toast.success("🎤 Listening... Speak now!");
 
-      recognitionRef.current.onresult = (event) => {
+      recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
+        console.log('Transcript:', transcript);
         setInput(prev => prev + (prev ? ' ' : '') + transcript);
         toast.success("✓ Voice captured!");
+        setIsListening(false);
       };
 
-      recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
+      recognition.onerror = (event) => {
+        console.error('Recognition error:', event.error);
         setIsListening(false);
         
         if (event.error === 'no-speech') {
           toast.error("No speech detected. Please try again.");
         } else if (event.error === 'not-allowed') {
-          toast.error("Microphone access denied. Please allow microphone permissions.");
+          toast.error("Microphone access denied. Please allow permissions.");
+        } else if (event.error === 'network') {
+          toast.error("Network error. Check your connection.");
         } else {
-          toast.error(`Speech recognition error: ${event.error}`);
+          toast.error(`Recognition error: ${event.error}`);
         }
       };
 
-      recognitionRef.current.onend = () => {
+      recognition.onend = () => {
+        console.log('Recognition ended');
         setIsListening(false);
       };
+
+      recognition.start();
     } catch (error) {
       console.error('Error starting recognition:', error);
       setIsListening(false);
-      toast.error("Failed to start voice input. Please check microphone permissions.");
+      toast.error("Failed to start voice input.");
     }
   };
 
   const stopListening = () => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      toast.info("Microphone stopped");
-    }
+    setIsListening(false);
+    toast.info("Microphone stopped");
   };
 
   // Handle question submission
@@ -312,7 +529,9 @@ const ChatBox = () => {
       const assistantMsg = {
         role: "assistant",
         content: result?.answer || "🙏 I couldn't find an answer in the transcript. Please ask another question.",
-        source: result?.providers ? `${result.providers.join(', ')}` : "AI",
+        sources: result?.sources || [],
+        providers: result?.providers ? result.providers.join(', ') : "AI",
+        sourceCount: result?.sourceCount || 0
       };
       
       setMessages((prev) => {
@@ -328,7 +547,11 @@ const ChatBox = () => {
         return newMessages;
       });
       
-      toast.success("✓ Answer received!");
+      if (result?.sourceCount > 0) {
+        toast.success(`✓ Answer from ${result.sourceCount} pravachan(s)!`);
+      } else {
+        toast.success("✓ Answer received!");
+      }
     } catch (error) {
       console.error("Submission error:", error);
       setMessages((prev) => [
@@ -355,6 +578,18 @@ const ChatBox = () => {
   return (
     <div className="w-full max-w-3xl mx-auto p-6 rounded-2xl border border-yellow-400/40 shadow-[0_0_40px_rgba(255,215,0,0.25)] bg-gradient-to-br from-yellow-200/10 via-yellow-100/5 to-transparent backdrop-blur-2xl text-yellow-100 relative overflow-hidden transition-all duration-300">
       
+      {/* Toast Notification */}
+      {showToast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg backdrop-blur-md border ${
+          showToast.type === 'success' ? 'bg-green-500/20 border-green-400 text-green-100' :
+          showToast.type === 'error' ? 'bg-red-500/20 border-red-400 text-red-100' :
+          showToast.type === 'warning' ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' :
+          'bg-blue-500/20 border-blue-400 text-blue-100'
+        } animate-in slide-in-from-top duration-300`}>
+          <p className="text-sm font-medium">{showToast.message}</p>
+        </div>
+      )}
+
       {/* Glass reflection overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-yellow-200/10 to-yellow-900/5 pointer-events-none rounded-2xl"></div>
 
@@ -454,39 +689,25 @@ const ChatBox = () => {
 
             <div>
               <label className="block text-sm font-medium text-yellow-300 mb-1">
-                Voice Speed: {voiceRate.toFixed(1)}x
+                Voice Gender
               </label>
-              <input
-                type="range"
-                min="0.5"
-                max="2.0"
-                step="0.1"
-                value={voiceRate}
-                onChange={(e) => setVoiceRate(parseFloat(e.target.value))}
-                className="w-full h-2 bg-yellow-400/30 rounded-lg appearance-none cursor-pointer accent-yellow-400"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-yellow-300 mb-1">
-                Voice Pitch: {voicePitch.toFixed(1)}x
-              </label>
-              <input
-                type="range"
-                min="0.5"
-                max="2.0"
-                step="0.1"
-                value={voicePitch}
-                onChange={(e) => setVoicePitch(parseFloat(e.target.value))}
-                className="w-full h-2 bg-yellow-400/30 rounded-lg appearance-none cursor-pointer accent-yellow-400"
-              />
+              <select
+                value={voiceGender}
+                onChange={(e) => setVoiceGender(e.target.value)}
+                className="w-full p-2 rounded-lg border border-yellow-400 bg-black/70 text-yellow-100 focus:ring-2 focus:ring-yellow-400"
+              >
+                <option value="male">🧔 Male (Sadhu/Devotional)</option>
+                <option value="female">👩 Female</option>
+              </select>
             </div>
           </div>
 
           <div className="mt-4 p-3 bg-yellow-900/20 rounded-lg border border-yellow-400/30">
-            <p className="text-xs text-yellow-300">
-              💡 <strong>Tip:</strong> Voice features work best in Chrome, Edge, or Safari. 
-              {!voiceEnabled && " Enable voice to use speech features."}
+            <p className="text-xs text-yellow-300 mb-2">
+              💡 <strong>Tip:</strong> For best results, use Chrome or Edge browser. Voice selection depends on your system's installed voices.
+            </p>
+            <p className="text-xs text-yellow-400/70">
+              If voice isn't working, check browser console (F12) for available voices and permissions.
             </p>
           </div>
         </div>
@@ -521,6 +742,7 @@ const ChatBox = () => {
                     }
                   }}
                   className="border-yellow-400/60 text-yellow-200 hover:bg-yellow-800/20 bg-yellow-400/10 transition-all"
+                  disabled={isSpeaking && currentSpeakingIndex !== index}
                 >
                   {currentSpeakingIndex === index ? (
                     <>

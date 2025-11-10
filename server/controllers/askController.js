@@ -74,7 +74,7 @@ const AI_PROVIDERS = [
       return completion.choices[0]?.message?.content || "";
     },
   },
-].filter((provider) => provider.enabled); // ✅ Only include enabled providers
+].filter((provider) => provider.enabled);
 
 // 🧩 Get best available Gemini model
 const getGeminiModel = async () => {
@@ -143,7 +143,6 @@ const callAIWithFallback = async (prompt, maxRetries = 2) => {
   );
 };
 
-// Rest of your code remains the same...
 const splitIntoChunks = (text, size = 10000) => {
   const chunks = [];
   for (let i = 0; i < text.length; i += size) {
@@ -161,7 +160,7 @@ const askFromAllTranscripts = async (req, res) => {
     }
 
     const videos = await Video.find({ status: "done" }).select(
-      "transcript url videoId"
+      "transcript url videoId title"
     );
 
     if (!videos || videos.length === 0) {
@@ -170,62 +169,140 @@ const askFromAllTranscripts = async (req, res) => {
 
     console.log(`📚 Found ${videos.length} videos with transcripts`);
 
-    const combinedTranscripts = videos
-      .map(
-        (v, i) =>
-          `Video ${i + 1} [${v.videoId || "no-id"}]:\n${v.transcript?.slice(
-            0,
-            2500
-          )}`
-      )
-      .join("\n\n---\n\n");
+    // Create chunks with video metadata for source tracking
+    const videoChunks = [];
+    videos.forEach((video) => {
+      const transcript = video.transcript || "";
+      const chunks = splitIntoChunks(transcript, 8000);
 
-    const chunks = splitIntoChunks(combinedTranscripts, 10000);
-    console.log(`📦 Split into ${chunks.length} chunks`);
+      chunks.forEach((chunk, idx) => {
+        videoChunks.push({
+          content: chunk,
+          videoId: video.videoId,
+          videoUrl: video.url,
+          videoTitle: video.title || `Video ${video.videoId}`,
+          chunkIndex: idx,
+        });
+      });
+    });
+
+    console.log(
+      `📦 Created ${videoChunks.length} chunks from ${videos.length} videos`
+    );
 
     let partialAnswers = [];
     let usedProviders = new Set();
+    let sourcesFound = [];
 
-    for (let i = 0; i < chunks.length; i++) {
+    // Process chunks in batches to find relevant sources
+    for (let i = 0; i < videoChunks.length; i++) {
+      const chunk = videoChunks[i];
+
       const prompt = `
-You are a multilingual spiritual assistant trained on devotional YouTube transcripts.
-You are the humble digital assistant of *Premanand Ji Maharaj*, a great saint of this era.
-You are **not** Premanand Ji — you are his respectful digital assistant who explains his teachings without personal attachment.
+You are the digital assistant of **Premanand Ji Maharaj** (प्रेमानंद जी महाराज), a revered spiritual saint.
 
-🕉️ User Preferences:
-- Preferred response language: ${language}
-- Response tone: ${tone}
+🕉️ **CRITICAL INSTRUCTIONS - FOLLOW STRICTLY:**
 
-Guidelines:
-1. Detect the user's question language automatically.
-2. If the user explicitly requests another language (e.g., "Tamil me batao"), reply in that requested language.
-3. If not specified, reply in the preferred language (${language}) or auto-detect if set to "auto".
-4. Keep the tone:
-   - "premand": devotional, peaceful, based on his teachings — **without personal addressing**.
-   - "brief": short and clear.
-   - "detailed": explanatory but simple.
-5. Use **simple and easy-to-understand words** in every language — avoid overly Sanskritized or complex phrases.
-6. Focus on clarity and feeling, not heavy grammar.
-7. Never use personal phrases like "my dear child", "beloved one", etc.
-8. Use only transcript information.
-9. If no answer found, say exactly:
-   "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।"
-10. Keep answers short (3–6 lines), loving, and simple for everyone to understand.
+1. **LANGUAGE PRIORITY (सबसे पहले):**
+   - **FIRST**: Always respond in the style and voice of Premanand Ji Maharaj
+   - Detect user's question language automatically
+   - If language="${language}" is specified, respond in that language
+   - Use **simple, easy words** that common people understand (आम बोलचाल की भाषा)
+   - Avoid heavy Sanskrit/complex words unless necessary
+   - Make it feel warm, devotional, and accessible
 
-Transcript Data (Part ${i + 1}/${chunks.length}):
-${chunks[i]}
+2. **TONE (स्वर):**
+   - ${
+     tone === "premand"
+       ? "Devotional, peaceful, exactly like Premanand Ji's teaching style"
+       : tone === "brief"
+       ? "Brief and clear"
+       : "Detailed but simple"
+   }
+   - Never use "my dear child" or personal addressing
+   - Be humble, respectful, and simple
+   - Focus on clarity and feeling
 
-Question:
+3. **SOURCE ATTRIBUTION (स्रोत):**
+   - If you find relevant answer in the transcript, you MUST include:
+     * Video ID: ${chunk.videoId}
+     * A brief quote or reference from the transcript
+   - Format your response as JSON:
+     {
+       "answer": "your answer here in ${language}",
+       "found": true/false,
+       "videoId": "${chunk.videoId}",
+       "videoTitle": "${chunk.videoTitle}",
+       "relevantQuote": "exact words from Maharaj Ji if found"
+     }
+
+4. **IF NOT FOUND:**
+   - If no relevant answer in this chunk, return:
+     {
+       "answer": "",
+       "found": false,
+       "videoId": "${chunk.videoId}"
+     }
+
+5. **ANSWER QUALITY:**
+   - Keep answers short (3-6 lines)
+   - Use exact words from Premanand Ji when possible
+   - Make it feel like Maharaj Ji is speaking through you
+   - Be authentic to his teaching style
+
+📺 **Video Source:**
+Video ID: ${chunk.videoId}
+Title: ${chunk.videoTitle}
+URL: ${chunk.videoUrl}
+
+📜 **Transcript Content (Pravachan):**
+${chunk.content}
+
+❓ **User's Question:**
 ${question}
+
+**RESPOND IN JSON FORMAT ONLY:**
 `;
 
       try {
-        console.log(`\n🧠 Processing chunk ${i + 1}/${chunks.length}...`);
+        console.log(
+          `\n🧠 Processing chunk ${i + 1}/${videoChunks.length} from video ${
+            chunk.videoId
+          }...`
+        );
         const { response, provider } = await callAIWithFallback(prompt);
 
-        if (response?.trim()) {
-          partialAnswers.push(response.trim());
-          usedProviders.add(provider);
+        // Parse JSON response
+        try {
+          let jsonResponse;
+          const jsonMatch = response.match(/\{[\s\S]*\}/);
+
+          if (jsonMatch) {
+            jsonResponse = JSON.parse(jsonMatch[0]);
+          } else {
+            // Fallback if not JSON
+            jsonResponse = {
+              answer: response.trim(),
+              found:
+                !response.includes("नहीं मिला") &&
+                !response.includes("not found"),
+              videoId: chunk.videoId,
+              videoTitle: chunk.videoTitle,
+            };
+          }
+
+          if (jsonResponse.found && jsonResponse.answer?.trim()) {
+            partialAnswers.push(jsonResponse.answer.trim());
+            sourcesFound.push({
+              videoId: jsonResponse.videoId,
+              videoTitle: jsonResponse.videoTitle,
+              videoUrl: chunk.videoUrl,
+              quote: jsonResponse.relevantQuote,
+            });
+            usedProviders.add(provider);
+          }
+        } catch (parseError) {
+          console.warn(`⚠️ Failed to parse JSON response from chunk ${i + 1}`);
         }
       } catch (chunkError) {
         console.error(
@@ -233,66 +310,104 @@ ${question}
           chunkError.message
         );
       }
+
+      // Stop if we have enough good answers (optimization)
+      if (partialAnswers.length >= 3) {
+        console.log(
+          `✅ Found sufficient answers (${partialAnswers.length}), stopping search...`
+        );
+        break;
+      }
     }
 
     if (partialAnswers.length === 0) {
-      return res.status(503).json({
-        error: "Service temporarily unavailable",
-        message:
-          "All AI providers are currently unavailable. Please try again in a few moments.",
+      return res.json({
+        success: true,
+        totalVideos: videos.length,
+        searchedChunks: videoChunks.length,
+        providers: Array.from(usedProviders),
+        answer:
+          language === "hindi"
+            ? "इस प्रश्न का स्पष्ट उल्लेख प्रेमानंद जी महाराज के किसी भी प्रवचन में नहीं मिला। कृपया प्रश्न को दूसरे तरीके से पूछें।"
+            : "This question is not explicitly mentioned in any of Premanand Ji Maharaj's pravachans. Please try rephrasing your question.",
+        sources: [],
       });
     }
 
     console.log(
-      `✅ Successfully processed ${partialAnswers.length}/${chunks.length} chunks`
+      `✅ Found ${partialAnswers.length} relevant answers from ${sourcesFound.length} sources`
     );
 
-    const allNotFound = partialAnswers.every((ans) =>
-      ans.includes("इस प्रश्न का स्पष्ट उल्लेख")
-    );
+    // Merge answers if multiple found
+    let finalAnswer;
+    if (partialAnswers.length === 1) {
+      finalAnswer = partialAnswers[0];
+    } else {
+      const uniqueAnswers = [...new Set(partialAnswers)];
+      const mergePrompt = `
+You are the digital voice of **Premanand Ji Maharaj**.
 
-    if (allNotFound) {
-      return res.json({
-        success: true,
-        totalVideos: videos.length,
-        totalChunks: chunks.length,
-        processedChunks: partialAnswers.length,
-        providers: Array.from(usedProviders),
-        answer:
-          "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।",
-      });
-    }
+Below are multiple answers from different pravachans (प्रवचन) about the same question.
 
-    const uniqueAnswers = [...new Set(partialAnswers)];
-    const mergePrompt = `
-You are a multilingual assistant. Below are partial answers from different transcript chunks.
+**YOUR TASK:**
+1. Combine them into ONE beautiful, unified answer
+2. Maintain Premanand Ji's devotional style and voice
+3. Keep it in ${language} language
+4. Use simple, warm words (सरल और प्यारे शब्द)
+5. Make it SHORT (5-7 lines maximum)
+6. Remove any repetition
+7. Make it feel like Maharaj Ji is speaking directly
+8. **IMPORTANT**: At the end, add a small note in the same language indicating this is from Premanand Ji Maharaj's YouTube pravachans
 
-Combine them into one clean, non-repetitive, and spiritually beautiful final answer.
-- Maintain the same tone (${tone})
-- Respond in the preferred or requested language (${language})
-- Avoid unnecessary repetition or "not found" statements.
-- Keep the final answer concise (5-8 lines maximum).
+**Tone:** ${
+        tone === "premand" ? "Devotional and peaceful like Premanand Ji" : tone
+      }
 
-Partial Answers:
-${uniqueAnswers.join("\n\n")}
+**Language-specific source format:**
+- Hindi: "स्रोत: प्रेमानंद जी महाराज के यूट्यूब प्रवचन से लिया गया है।"
+- English: "Source: Taken from Premanand Ji Maharaj's YouTube pravachans."
+- Tamil: "மூலம்: பிரேமானந்த் ஜி மகாராஜின் யூடியூப் உரைகளிலிருந்து எடுக்கப்பட்டது."
+- Malayalam: "ഉറവിടം: പ്രേമാനന്ദ് ജി മഹാരാജിന്റെ യൂട്യൂബ് പ്രഭാഷണങ്ങളിൽ നിന്ന്."
+- Bengali: "সূত্র: প্রেমানন্দ জি মহারাজের ইউটিউব প্রবচন থেকে নেওয়া হয়েছে।"
+- Gujarati: "સ્રોત: પ્રેમાનંદ જી મહારાજના યુટ્યુબ પ્રવચનમાંથી લેવામાં આવ્યું છે."
+- Kannada: "ಮೂಲ: ಪ್ರೇಮಾನಂದ್ ಜಿ ಮಹಾರಾಜರ ಯೂಟ್ಯೂಬ್ ಪ್ರವಚನಗಳಿಂದ ತೆಗೆದುಕೊಳ್ಳಲಾಗಿದೆ."
 
-Now produce the unified final answer:
+Choose the appropriate source line based on the ${language} language.
+
+**Partial Answers:**
+${uniqueAnswers.map((ans, i) => `${i + 1}. ${ans}`).join("\n\n")}
+
+**Provide the FINAL UNIFIED ANSWER in ${language} with source note at the end:**
 `;
 
-    console.log(`\n🔀 Merging ${uniqueAnswers.length} unique answers...`);
-    const { response: finalAnswer, provider: mergeProvider } =
-      await callAIWithFallback(mergePrompt);
-    usedProviders.add(mergeProvider);
+      console.log(`\n🔀 Merging ${uniqueAnswers.length} answers...`);
+      const { response: merged, provider: mergeProvider } =
+        await callAIWithFallback(mergePrompt);
+      usedProviders.add(mergeProvider);
+      finalAnswer = merged?.trim() || partialAnswers[0];
+    }
+
+    // Remove duplicate sources
+    const uniqueSources = sourcesFound.reduce((acc, source) => {
+      if (!acc.find((s) => s.videoId === source.videoId)) {
+        acc.push(source);
+      }
+      return acc;
+    }, []);
 
     res.json({
       success: true,
       totalVideos: videos.length,
-      totalChunks: chunks.length,
-      processedChunks: partialAnswers.length,
+      searchedChunks: videoChunks.length,
       providers: Array.from(usedProviders),
-      answer:
-        finalAnswer?.trim() ||
-        "इस प्रश्न का स्पष्ट उल्लेख किसी भी प्रवचन में नहीं किया गया है।",
+      answer: finalAnswer,
+      sources: uniqueSources.map((s) => ({
+        videoId: s.videoId,
+        title: s.videoTitle,
+        url: s.videoUrl,
+        quote: s.quote,
+      })),
+      sourceCount: uniqueSources.length,
     });
   } catch (err) {
     console.error("❌ Error in askFromAllTranscripts:", err);
