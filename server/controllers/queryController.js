@@ -38,7 +38,7 @@ const queryGemini = async (req, res) => {
 
     // Step 1: Get transcript
     const transcriptRes = await axios.get(
-      `http://localhost:5000/api/transcripts/${videoId}`
+      `https://bhakti-marg-gyan.onrender.com/api/transcripts/${videoId}`
     );
 
     if (transcriptRes.data.error === "video not ready") {

@@ -47,7 +47,7 @@ const ChatBox = () => {
   // Fetch from backend
   const askFromTranscript = async (question) => {
     try {
-      const response = await fetch("http://localhost:5000/api/ask", {
+      const response = await fetch("https://bhakti-marg-gyan.onrender.com/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, language, tone }),
