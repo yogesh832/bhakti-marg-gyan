@@ -17,8 +17,9 @@ app.use("/api/ingest", ingestRouter);
 app.use("/api/ask", askRouter);
 
 const PORT = process.env.PORT || 5000;
+const HOST = "0.0.0.0"; // ✅ Required for Render
 
-/* ✅ Safe FFmpeg & FFprobe check (won’t crash if missing) */
+/* ✅ Safe FFmpeg & FFprobe check (won't crash if missing) */
 function checkFFmpeg() {
   try {
     execSync("ffmpeg -version", { stdio: "ignore" });
@@ -42,8 +43,10 @@ async function start() {
     });
     console.log("✅ MongoDB connected successfully");
 
-    // Start server
-    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    // Start server - MUST bind to 0.0.0.0 for Render
+    app.listen(PORT, HOST, () => {
+      console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+    });
   } catch (err) {
     console.error("❌ Error starting server:", err.message);
     process.exit(1);
