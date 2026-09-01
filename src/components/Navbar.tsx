@@ -42,6 +42,14 @@ const Navbar = () => {
             >
               About Maharaj Ji
             </Link>
+            <Link
+              to="/dashboard"
+              className={`text-sm font-medium transition-colors hover:text-primary ${
+                isActive("/dashboard") ? "text-primary" : "text-foreground/70"
+              }`}
+            >
+              Dashboard
+            </Link>
           </div>
         </div>
       </div>

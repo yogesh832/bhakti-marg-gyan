@@ -1,0 +1,410 @@
+{
+  "description": "Ekantik Vartalap video seed list for Bhakti Marg Gyan",
+  "note": "Add YouTube video URLs below. Run 'npm run seed' or trigger via API to ingest.",
+  "videos": [
+    {
+      "url": "https://www.youtube.com/watch?v=Pr7zzNVaBgY",
+      "title": "#1374 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=xSrZc4UTcIk",
+      "title": "#1373 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=trDJUJpvM24",
+      "title": "#1372 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=X8v6fpKBVYA",
+      "title": "#1371 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=5Kv9BvmrC6U",
+      "title": "#1370 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=qWKHruQwvbU",
+      "title": "#1369 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=glRyRsZrY3A",
+      "title": "#1368 Ekantik Vartalaap & Darshan/25-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=dHU88BT4szA",
+      "title": "#1367 Ekantik Vartalaap & Darshan/24-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=zRgiNPIYJyc",
+      "title": "#1366 Ekantik Vartalaap & Darshan/23-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=g8ek9zU6Noo",
+      "title": "#1365 Ekantik Vartalaap & Darshan/22-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=TpfF_Wz6NZs",
+      "title": "#1364 Ekantik Vartalaap & Darshan/21-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=wnpo9qlgs4E",
+      "title": "#1363 Ekantik Vartalaap & Darshan/20-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=MMovohXKUDM",
+      "title": "#1362 Ekantik Vartalaap & Darshan/19-08-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=z35OQVl5BcI",
+      "title": "#1361 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=SnarIiGKTVA",
+      "title": "#1360 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=pEKnKM6uCCc",
+      "title": "#1359 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=21qlk53mPb0",
+      "title": "#1358 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=-WRYITziqVc",
+      "title": "#1357 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=sUUjTY3ie4s",
+      "title": "#1356 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=wEG0Z4pJKxY",
+      "title": "#1355 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=qBDS3HppTFA",
+      "title": "#1354 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hStj9FUj9cA",
+      "title": "#1353 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=kH20l4C-3hQ",
+      "title": "#1352 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=4_tHqg8Ny54",
+      "title": "#1351 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=6QPBIKCcT64",
+      "title": "#1350 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=fLcTfxHPt2k",
+      "title": "#1349 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=oFgF_XEpuO4",
+      "title": "#1348 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=eU8N_PVilPU",
+      "title": "#1347 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=wanOpdj1Arg",
+      "title": "#1346 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ErP9rjUduKQ",
+      "title": "#1345 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Lgn-rroObt0",
+      "title": "#1344 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=GhYm0TcnEo0",
+      "title": "#1343 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=EX0NIy2-HyE",
+      "title": "#1342 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ckiVQEe8WpQ",
+      "title": "#1341 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=tmlAk5yThJY",
+      "title": "#1340 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=-yqlUBDhHm4",
+      "title": "#1339 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=L80N7FyOmg4",
+      "title": "#1338 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=3oIbJ3cCeTg",
+      "title": "#1337 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=RHu7OEr0bjM",
+      "title": "#1335 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=K-zW8g-Ua0Y",
+      "title": "#1334 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=nGHedFRQAVo",
+      "title": "#1333 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=09wbKYyQBgU",
+      "title": "#1332 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=PThgb8zgDNs",
+      "title": "#1331 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hAh1urUcmDM",
+      "title": "#1330 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=wHEktJCv0hk",
+      "title": "#1329 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=8oESd5fAcSo",
+      "title": "#1328 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WG8lUZ_WBmw",
+      "title": "#1327 Ekantik Vartalaap & Darshan/Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=EPxzT6PF5mo",
+      "title": "#1326 Ekantik Vartalaap & Darshan/14-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=oz_tFjn5JmA",
+      "title": "#1325 Ekantik Vartalaap & Darshan/13-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=aHbA15kDb1w",
+      "title": "#1324 Ekantik Vartalaap & Darshan/12-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=gWwhvLiBG78",
+      "title": "#1323 Ekantik Vartalaap & Darshan/11-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=zlQMbUwvHr8",
+      "title": "#1322 Ekantik Vartalaap & Darshan/10-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=CEJeT6OR_6U",
+      "title": "#1321 Ekantik Vartalaap & Darshan/09-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=TatEXDjJAzs",
+      "title": "#1320 Ekantik Vartalaap & Darshan/08-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=912-g7llJfo",
+      "title": "#1319 Ekantik Vartalaap & Darshan/07-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=VS--zja67KE",
+      "title": "#1318 Ekantik Vartalaap & Darshan/06-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=K4Dkna8tmGQ",
+      "title": "#1317 Ekantik Vartalaap & Darshan/05-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=OlpF9YvS1Wg",
+      "title": "#1316 Ekantik Vartalaap & Darshan/04-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=L1wol6Uppb0",
+      "title": "#1315 Ekantik Vartalaap & Darshan/03-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=s_QIAcnDemk",
+      "title": "Video 60"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=_ADpUVUxR3Q",
+      "title": "#1314 Ekantik Vartalaap & Darshan/02-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Dy_mvgOroLs",
+      "title": "#1313 Ekantik Vartalaap & Darshan/01-07-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=zrds37Pxe1Q",
+      "title": "#1312 Ekantik Vartalaap & Darshan/30-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=6mu8A_b4S04",
+      "title": "#1311 Ekantik Vartalaap & Darshan/29-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=aVdvOMSfgCk",
+      "title": "#1310 Ekantik Vartalaap & Darshan/28-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=LoWWmfR5YOo",
+      "title": "#1309 Ekantik Vartalaap & Darshan/27-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=2FC61zhp1tk",
+      "title": "#1308 Ekantik Vartalaap & Darshan/26-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=1YB6SKw3q6k",
+      "title": "#1307 Ekantik Vartalaap & Darshan/25-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=aiRyiXRwLW0",
+      "title": "#1306 Ekantik Vartalaap & Darshan/24-06-2026/ Shri Hit Premanand Govind Sharan Ji"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=J3dkYO5lfC8",
+      "title": "#1305 Ekantik Vartalaap & Darshan/23-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=SDgnYMXwbeQ",
+      "title": "#1304 Ekantik Vartalaap & Darshan/22-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=BmDOkT_lags",
+      "title": "#1303 Ekantik Vartalaap & Darshan/21-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=cgXkeAXIIIM",
+      "title": "#1302 Ekantik Vartalaap & Darshan/20-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WXJ7Zo5rkPQ",
+      "title": "#1301 Ekantik Vartalaap & Darshan/19-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=7E1kgTDbgYg",
+      "title": "#1300 Ekantik Vartalaap & Darshan/18-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=aevT86xqj0o",
+      "title": "#1299 Ekantik Vartalaap & Darshan/17-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=OAITnbNsTo8",
+      "title": "#1298 Ekantik Vartalaap & Darshan/16-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Ldnfgp2hf24",
+      "title": "#1297 Ekantik Vartalaap & Darshan/15-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=2guCi1izQnA",
+      "title": "#1296 Ekantik Vartalaap & Darshan/14-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=4jAnZqvswzY",
+      "title": "#1295 Ekantik Vartalaap & Darshan/13-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=UKOjEiKVc0Y",
+      "title": "#1294 Ekantik Vartalaap & Darshan/12-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=kJnFF8NNRRc",
+      "title": "#1293 Ekantik Vartalaap & Darshan/11-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=3KBDBlWZQFU",
+      "title": "#1292 Ekantik Vartalaap & Darshan/10-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=GjnaCEwJ32M",
+      "title": "#1291 Ekantik Vartalaap & Darshan/09-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=4--zreOTmoo",
+      "title": "#1290 Ekantik Vartalaap & Darshan/08-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ant_CKHOPYI",
+      "title": "#1289 Ekantik Vartalaap & Darshan/07-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=7pubVC65PQo",
+      "title": "#1288 Ekantik Vartalaap & Darshan/06-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=2eYQZAHLVZ0",
+      "title": "#1287 Ekantik Vartalaap & Darshan/05-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=rYWgFirOLHY",
+      "title": "#1286 Ekantik Vartalaap & Darshan/04-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=a9zF-VWJl0o",
+      "title": "#1285 Ekantik Vartalaap & Darshan/03-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=aRgxhEBeGwU",
+      "title": "#1284 Ekantik Vartalaap & Darshan/02-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=6kqATvFObzM",
+      "title": "#1283 Ekantik Vartalaap & Darshan/01-06-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=e_knvZZ6DkU",
+      "title": "#1282 Ekantik Vartalaap & Darshan/31-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=5bQXgoSiUl4",
+      "title": "#1281 Ekantik Vartalaap & Darshan/30-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=7kwwoF-mR_k",
+      "title": "#1280 Ekantik Vartalaap & Darshan/29-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=XyJGCdruy1g",
+      "title": "#1279 Ekantik Vartalaap & Darshan/28-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=w7pDMd4Y26g",
+      "title": "#1278 Ekantik Vartalaap & Darshan/27-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=o00AanON3jo",
+      "title": "#1277 Ekantik Vartalaap & Darshan/26-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=kVDVqaQNJjU",
+      "title": "#1276 Ekantik Vartalaap & Darshan/25-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=84KvOy4ACtM",
+      "title": "#1275 Ekantik Vartalaap & Darshan/24-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=lHcOgzzkwUY",
+      "title": "#1274 Ekantik Vartalaap & Darshan/23-05-2026/ Shri Hit Premanand Govind Sharan Ji Maharaj"
+    }
+  ]
+}

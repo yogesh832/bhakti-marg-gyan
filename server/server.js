@@ -1,16 +1,19 @@
-/* ---------- src/server.js ---------- */
+/* ---------- server.js ---------- */
 const express = require("express");
 require("dotenv").config();
 const mongoose = require("mongoose");
 const { execSync } = require("child_process");
 const cors = require("cors");
+const path = require("path");
 
 const ingestRouter = require("./controllers/ingestController");
 const askRouter = require("./controllers/askController");
+const { autoSeed } = require("./services/autoSeeder");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ✅ Catch ALL unhandled errors
 process.on("unhandledRejection", (err) => {
@@ -29,7 +32,44 @@ console.log("🔧 Starting application...");
 app.use("/api/ingest", ingestRouter);
 app.use("/api/ask", askRouter);
 
-const PORT = process.env.PORT || 5000;
+// Auto-seed endpoint - GET /api/seed to trigger, or POST with custom videos
+app.get("/api/seed", async (req, res) => {
+  try {
+    const seeds = require("./config/seeds.json");
+    if (!seeds.videos || seeds.videos.length === 0) {
+      return res.json({ success: true, message: "No videos in seed list", total: 0 });
+    }
+    const result = await autoSeed(seeds.videos);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Seed error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Seed status endpoint
+app.get("/api/seed/status", async (req, res) => {
+  try {
+    const seeds = require("./config/seeds.json");
+    const Video = require("./models/videoModel");
+    const existing = await Video.find({}).select("videoId");
+    const existingIds = new Set(existing.map(v => v.videoId));
+
+    const pending = seeds.videos.filter(v => !existingIds.has(require("./services/autoSeeder").getYouTubeId(v.url)));
+
+    res.json({
+      success: true,
+      totalInList: seeds.videos.length,
+      inDatabase: existing.length,
+      pending: pending.length,
+      seeded: seeds.videos.length - pending.length
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+const PORT = process.env.PORT || 5001;
 const HOST = "0.0.0.0"; // ✅ Required for Render deployment
 
 /* ✅ Check required environment variables */
@@ -124,3 +164,27 @@ async function start() {
 // 🔧 Run startup
 console.log("🚀 Calling start function...");
 start();
+
+// Auto-seed on startup (always runs, checks for pending videos)
+mongoose.connection.once("open", async () => {
+  console.log("📥 Checking for pending videos to seed...");
+  try {
+    const seeds = require("./config/seeds.json");
+    const Video = require("./models/videoModel");
+    const existing = await Video.find({}).select("videoId");
+    const existingIds = new Set(existing.map(v => v.videoId));
+    const { getYouTubeId } = require("./services/autoSeeder");
+
+    const pending = seeds.videos.filter(v => !existingIds.has(getYouTubeId(v.url)));
+
+    if (pending.length > 0) {
+      console.log(`📥 Found ${pending.length} pending videos, starting auto-seed...`);
+      // Run in background (non-blocking)
+      autoSeed(pending).catch(err => console.error("❌ Auto-seed error:", err.message));
+    } else {
+      console.log("✅ All videos already seeded, skipping auto-seed.");
+    }
+  } catch (err) {
+    console.error("⚠️ Could not check pending videos:", err.message);
+  }
+});

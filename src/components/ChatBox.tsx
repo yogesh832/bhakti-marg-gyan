@@ -2,10 +2,75 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle } from "lucide-react";
+import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle, PlayCircle, X, Radio } from "lucide-react";
 
 // MessageBubble Component
-const MessageBubble = ({ message }) => {
+const formatTime = (seconds = 0) => {
+  const safeSeconds = Math.max(0, Math.floor(seconds || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const rest = safeSeconds % 60;
+  return `${minutes}:${rest.toString().padStart(2, "0")}`;
+};
+
+const getYouTubeEmbedUrl = (source) => {
+  const start = Math.max(0, Math.floor(source.startTime || 0));
+  const end = Math.max(start + 1, Math.floor(source.endTime || start + 60));
+  return `https://www.youtube.com/embed/${source.videoId}?start=${start}&end=${end}&autoplay=1&rel=0&modestbranding=1`;
+};
+
+const VideoSectionPlayer = ({ source, onClose }) => {
+  if (!source) return null;
+
+  const isUpload = source.sourceType === "upload" || source.mediaUrl;
+  const start = Math.max(0, Math.floor(source.startTime || 0));
+  const end = Math.max(start + 1, Math.floor(source.endTime || start + 60));
+
+  return (
+    <div className="mb-6 rounded-xl border border-yellow-400/40 bg-black/70 overflow-hidden shadow-[0_0_24px_rgba(255,215,0,0.22)] relative z-10">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-yellow-400/20">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-yellow-200 truncate">
+            {source.title || "Pravachan section"}
+          </p>
+          <p className="text-xs text-yellow-400/70">
+            {formatTime(start)} - {formatTime(end)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onClose}
+          className="border-yellow-400/60 text-yellow-200 hover:bg-yellow-800/20 bg-yellow-400/10"
+        >
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
+      <div className="aspect-video bg-black">
+        {isUpload ? (
+          <video
+            key={`${source.mediaUrl}-${start}-${end}`}
+            src={`${source.mediaUrl || source.url}#t=${start},${end}`}
+            controls
+            autoPlay
+            className="w-full h-full"
+          />
+        ) : (
+          <iframe
+            key={`${source.videoId}-${start}-${end}`}
+            src={getYouTubeEmbedUrl(source)}
+            title={source.title || "YouTube pravachan section"}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full"
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+const MessageBubble = ({ message, onPlaySource }) => {
   const [showSources, setShowSources] = useState(false);
   const isUser = message.role === "user";
   
@@ -43,11 +108,19 @@ const MessageBubble = ({ message }) => {
               <div className="mt-2 space-y-2 animate-in slide-in-from-top duration-200">
                 {message.sources.map((source, idx) => (
                   <div key={idx} className="mb-2 last:mb-0 pl-2 border-l-2 border-yellow-400/30">
+                    <button
+                      type="button"
+                      onClick={() => onPlaySource?.(source)}
+                      className="inline-flex items-center gap-1 text-xs text-yellow-200 hover:text-yellow-100 underline"
+                    >
+                      <PlayCircle className="w-3 h-3" />
+                      Play {formatTime(source.startTime)} - {formatTime(source.endTime)}
+                    </button>
                     <a 
                       href={source.url} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-xs text-yellow-300 hover:text-yellow-100 underline block"
+                      className="text-xs text-yellow-300 hover:text-yellow-100 underline block mt-1"
                     >
                       🎥 {source.title || `Video ${source.videoId}`}
                     </a>
@@ -77,6 +150,8 @@ const ChatBox = () => {
   const [currentSpeakingIndex, setCurrentSpeakingIndex] = useState(null);
   const [autoPlay, setAutoPlay] = useState(true);
   const [showToast, setShowToast] = useState(null);
+  const [activeSource, setActiveSource] = useState(null);
+  const [liveVoiceMode, setLiveVoiceMode] = useState(false);
 
   // Preferences
   const [language, setLanguage] = useState("hindi");
@@ -88,6 +163,7 @@ const ChatBox = () => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const speechSynthRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   // Toast notification helper
   const toast = {
@@ -126,6 +202,7 @@ const ChatBox = () => {
         setVoiceEnabled(prefs.voiceEnabled !== undefined ? prefs.voiceEnabled : true);
         setVoiceGender(prefs.voiceGender || "male");
         setAutoPlay(prefs.autoPlay !== undefined ? prefs.autoPlay : true);
+        setLiveVoiceMode(prefs.liveVoiceMode !== undefined ? prefs.liveVoiceMode : false);
       } catch (e) {
         console.error("Failed to load preferences", e);
       }
@@ -161,9 +238,10 @@ const ChatBox = () => {
       tone, 
       voiceEnabled, 
       voiceGender,
-      autoPlay 
+      autoPlay,
+      liveVoiceMode
     }));
-  }, [language, tone, voiceEnabled, voiceGender, autoPlay]);
+  }, [language, tone, voiceEnabled, voiceGender, autoPlay, liveVoiceMode]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -468,6 +546,7 @@ const ChatBox = () => {
     try {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
       
       recognition.lang = getLanguageLocale(language);
       recognition.continuous = false;
@@ -480,7 +559,12 @@ const ChatBox = () => {
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         console.log('Transcript:', transcript);
-        setInput(prev => prev + (prev ? ' ' : '') + transcript);
+        if (liveVoiceMode) {
+          setInput("");
+          submitQuestion(transcript);
+        } else {
+          setInput(prev => prev + (prev ? ' ' : '') + transcript);
+        }
         toast.success("✓ Voice captured!");
         setIsListening(false);
       };
@@ -502,6 +586,7 @@ const ChatBox = () => {
 
       recognition.onend = () => {
         console.log('Recognition ended');
+        recognitionRef.current = null;
         setIsListening(false);
       };
 
@@ -514,24 +599,27 @@ const ChatBox = () => {
   };
 
   const stopListening = () => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
     setIsListening(false);
     toast.info("Microphone stopped");
   };
 
-  // Handle question submission
-  const handleSubmit = async () => {
-    if (isLoading || !input.trim()) {
+  const submitQuestion = async (questionText) => {
+    const cleanQuestion = questionText.trim();
+
+    if (isLoading || !cleanQuestion) {
       toast.error("Please enter a question");
       return;
     }
 
-    const userMsg = { role: "user", content: input.trim() };
+    const userMsg = { role: "user", content: cleanQuestion };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsLoading(true);
 
     try {
-      const result = await askFromTranscript(input.trim());
+      const result = await askFromTranscript(cleanQuestion);
       const assistantMsg = {
         role: "assistant",
         content: result?.answer || "🙏 I couldn't find an answer in the transcript. Please ask another question.",
@@ -573,6 +661,11 @@ const ChatBox = () => {
     }
   };
 
+  // Handle question submission
+  const handleSubmit = async () => {
+    submitQuestion(input);
+  };
+
   // Clear chat
   const clearChat = () => {
     localStorage.removeItem("chat_history");
@@ -606,6 +699,20 @@ const ChatBox = () => {
         </h2>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setLiveVoiceMode((value) => !value);
+              setAutoPlay(true);
+              setVoiceEnabled(true);
+            }}
+            className={`border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 ${
+              liveVoiceMode ? "bg-yellow-500/30" : "bg-yellow-400/10"
+            }`}
+          >
+            <Radio className="w-4 h-4 mr-1" /> Live Voice
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -706,6 +813,20 @@ const ChatBox = () => {
                 <option value="female">👩 Female</option>
               </select>
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-yellow-300 mb-1">
+                Live Voice Conversation
+              </label>
+              <select
+                value={liveVoiceMode ? "enabled" : "disabled"}
+                onChange={(e) => setLiveVoiceMode(e.target.value === "enabled")}
+                className="w-full p-2 rounded-lg border border-yellow-400 bg-black/70 text-yellow-100 focus:ring-2 focus:ring-yellow-400"
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
           </div>
 
           <div className="mt-4 p-3 bg-yellow-900/20 rounded-lg border border-yellow-400/30">
@@ -718,6 +839,8 @@ const ChatBox = () => {
           </div>
         </div>
       )}
+
+      <VideoSectionPlayer source={activeSource} onClose={() => setActiveSource(null)} />
 
       {/* Chat Section */}
       <div className="space-y-6 mb-6 max-h-[60vh] overflow-y-auto px-2 relative z-10 scroll-smooth">
@@ -734,7 +857,7 @@ const ChatBox = () => {
 
         {messages.map((message, index) => (
           <div key={index}>
-            <MessageBubble message={message} />
+            <MessageBubble message={message} onPlaySource={setActiveSource} />
             {message.role === "assistant" && voiceEnabled && (
               <div className="flex justify-end mt-2 gap-2">
                 <Button

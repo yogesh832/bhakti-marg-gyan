@@ -3,45 +3,43 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const Groq = require("groq-sdk");
 const OpenAI = require("openai");
 const Video = require("../models/videoModel");
+const { searchRelevantChunks, cleanText } = require("../services/retrievalService");
 
-// ✅ Check for required API keys
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// ✅ Only initialize clients if keys exist
-let genAI, groq, openai;
+let genAI;
+let groq;
+let openai;
 
-if (GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  console.log("✅ Gemini client initialized");
-} else {
-  console.warn("⚠️ GEMINI_API_KEY not found");
-}
+if (GEMINI_API_KEY) genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+if (GROQ_API_KEY) groq = new Groq({ apiKey: GROQ_API_KEY });
+if (OPENAI_API_KEY) openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-if (GROQ_API_KEY) {
-  groq = new Groq({ apiKey: GROQ_API_KEY });
-  console.log("✅ Groq client initialized");
-} else {
-  console.warn("⚠️ GROQ_API_KEY not found");
-}
+const getGeminiModel = async () => {
+  if (!GEMINI_API_KEY) return "models/gemini-1.5-flash";
+  try {
+    const res = await axios.get(
+      `https://generativelanguage.googleapis.com/v1/models?key=${GEMINI_API_KEY}`
+    );
+    const models = res.data.models.map((model) => model.name);
+    return (
+      models.find((model) => model.includes("1.5-flash")) ||
+      models.find((model) => model.includes("flash")) ||
+      "models/gemini-1.5-flash"
+    );
+  } catch {
+    return "models/gemini-1.5-flash";
+  }
+};
 
-if (OPENAI_API_KEY) {
-  openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-  console.log("✅ OpenAI client initialized");
-} else {
-  console.warn("⚠️ OPENAI_API_KEY not found");
-}
-
-// 🎯 AI Provider configurations
 const AI_PROVIDERS = [
   {
     name: "Gemini",
     enabled: !!genAI,
     handler: async (prompt) => {
-      if (!genAI) throw new Error("Gemini not configured");
-      const modelName = await getGeminiModel();
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const model = genAI.getGenerativeModel({ model: await getGeminiModel() });
       const result = await model.generateContent(prompt);
       return result.response.text();
     },
@@ -50,12 +48,11 @@ const AI_PROVIDERS = [
     name: "Groq",
     enabled: !!groq,
     handler: async (prompt) => {
-      if (!groq) throw new Error("Groq not configured");
       const completion = await groq.chat.completions.create({
         messages: [{ role: "user", content: prompt }],
         model: "llama-3.3-70b-versatile",
-        temperature: 0.7,
-        max_tokens: 2048,
+        temperature: 0.3, // Lower temp for more focused answers
+        max_tokens: 1200,
       });
       return completion.choices[0]?.message?.content || "";
     },
@@ -64,359 +61,198 @@ const AI_PROVIDERS = [
     name: "OpenAI",
     enabled: !!openai,
     handler: async (prompt) => {
-      if (!openai) throw new Error("OpenAI not configured");
       const completion = await openai.chat.completions.create({
         messages: [{ role: "user", content: prompt }],
         model: "gpt-4o-mini",
-        temperature: 0.7,
-        max_tokens: 2048,
+        temperature: 0.3,
+        max_tokens: 1200,
       });
       return completion.choices[0]?.message?.content || "";
     },
   },
 ].filter((provider) => provider.enabled);
 
-// 🧩 Get best available Gemini model
-const getGeminiModel = async () => {
-  if (!GEMINI_API_KEY) return "models/gemini-1.5-flash";
-
-  try {
-    const res = await axios.get(
-      `https://generativelanguage.googleapis.com/v1/models?key=${GEMINI_API_KEY}`
-    );
-    const models = res.data.models.map((m) => m.name);
-
-    return (
-      models.find((m) => m.includes("1.5-flash")) ||
-      models.find((m) => m.includes("flash")) ||
-      models.find((m) => m.includes("pro")) ||
-      "models/gemini-1.5-flash"
-    );
-  } catch {
-    return "models/gemini-1.5-flash";
-  }
-};
-
-// 🔄 Smart AI caller with automatic provider fallback
-const callAIWithFallback = async (prompt, maxRetries = 2) => {
+const callAIWithFallback = async (prompt) => {
   if (AI_PROVIDERS.length === 0) {
-    throw new Error(
-      "No AI providers configured. Please set API keys in environment variables."
-    );
+    throw new Error("No AI providers configured.");
   }
 
   let lastError;
-
   for (const provider of AI_PROVIDERS) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(
-          `🤖 Trying ${provider.name} (attempt ${attempt}/${maxRetries})...`
-        );
-        const response = await provider.handler(prompt);
-        console.log(`✅ Success with ${provider.name}`);
-        return { response, provider: provider.name };
-      } catch (error) {
-        lastError = error;
-        const isRetryable = error.status === 503 || error.status === 429;
-
-        console.warn(
-          `⚠️ ${provider.name} failed (attempt ${attempt}/${maxRetries}):`,
-          error.message
-        );
-
-        if (attempt < maxRetries && isRetryable) {
-          const delay = 2000 * Math.pow(2, attempt - 1);
-          console.log(`⏳ Waiting ${delay}ms before retry...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        } else {
-          break;
-        }
-      }
+    try {
+      const response = await provider.handler(prompt);
+      return { response, provider: provider.name };
+    } catch (error) {
+      lastError = error;
+      console.warn(`${provider.name} failed: ${error.message}`);
     }
   }
-
-  throw new Error(
-    `All AI providers failed. Last error: ${
-      lastError?.message || "Unknown error"
-    }`
-  );
+  throw new Error(`All AI providers failed: ${lastError?.message || "Unknown error"}`);
 };
 
-const splitIntoChunks = (text, size = 10000) => {
-  const chunks = [];
-  for (let i = 0; i < text.length; i += size) {
-    chunks.push(text.slice(i, i + size));
+const getLanguageInstruction = (language) => {
+  const instructions = {
+    hindi: "जवाब हिंदी में दें।",
+    english: "Answer in English.",
+    tamil: "பதிலை தமிழில் கொடுங்கள்.",
+    malayalam: "ഉത്തരം മലയാളത്തിൽ നൽകുക.",
+    bengali: "উত্তর বাংলায় দিন।",
+    gujarati: "જવાબ ગુજરાતીમાં આપો.",
+    kannada: "ಉತ್ತರವನ್ನು ಕನ್ನಡದಲ್ಲಿ ನೀಡಿ.",
+  };
+  return instructions[language] || "जवाब उसी भाषा में दें जिसमें सवाल पूछा गया है।";
+};
+
+const getToneInstruction = (tone) => {
+  const tones = {
+    premand: "शैली: Premanand Ji Maharaj जी की शिक्षाओं के अनुसार, शांत, प्रेमपूर्ण और सरल।",
+    brief: "शैली: संक्षिप्त और सीधा।",
+    detailed: "शैली: विस्तृत और स्पष्ट।",
+  };
+  return tones[tone] || tones.premand;
+};
+
+// Clean quote for display
+const cleanQuote = (quote) => {
+  if (!quote) return "";
+  // Remove repeated words like "राधा राधा राधा"
+  let cleaned = quote.replace(/(.{2,})\s*(?:\1\s*){2,}/g, '$1');
+  // Remove excessive whitespace
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
+};
+
+const formatEvidence = (matches) =>
+  matches
+    .map((match, index) => {
+      const cleanedQuote = cleanQuote(match.quote);
+      return `[${index + 1}] ${match.title}
+समय: ${Math.floor(match.startTime / 60)}:${String(Math.floor(match.startTime % 60)).padStart(2, '0')} - ${Math.floor(match.endTime / 60)}:${String(Math.floor(match.endTime % 60)).padStart(2, '0')}
+"${cleanedQuote}"`
+    })
+    .join("\n\n");
+
+const noAnswerText = (language) => {
+  const messages = {
+    hindi: "इस प्रश्न से संबंधित उपदेश अभी डेटाबेस में उपलब्ध नहीं है। कृपया अपना प्रश्न थोड़ा अलग तरीके से पूछें।",
+    default: "माफ़ कीजिए, इस प्रश्न का उत्तर मिलने में कठिनाई हो रही है। कृपया प्रश्न को सरल शब्दों में पूछें।"
+  };
+  return messages[language] || messages.default;
+};
+
+const loadCandidateVideos = async (question) => {
+  const projection = {
+    videoId: 1,
+    url: 1,
+    mediaUrl: 1,
+    sourceType: 1,
+    title: 1,
+    transcript: 1,
+    chunks: 1,
+  };
+
+  try {
+    // Try text search first
+    const textMatches = await Video.find(
+      { status: "done", $text: { $search: question } },
+      { score: { $meta: "textScore" }, ...projection }
+    )
+      .sort({ score: { $meta: "textScore" } })
+      .limit(50);
+
+    if (textMatches.length > 0) return textMatches;
+  } catch (error) {
+    console.warn(`Mongo text search failed: ${error.message}`);
   }
-  return chunks;
+
+  // Fallback to all done videos
+  return Video.find({ status: "done" })
+    .select(Object.values(projection).join(' '))
+    .limit(100);
 };
 
-const askFromAllTranscripts = async (req, res) => {
+const askFromIndexedTranscripts = async (req, res) => {
   try {
     const { question, language = "auto", tone = "premand" } = req.body;
 
-    if (!question) {
+    if (!question || !question.trim()) {
       return res.status(400).json({ error: "Question is required" });
     }
 
-    const videos = await Video.find({ status: "done" }).select(
-      "transcript url videoId title"
-    );
+    const [videos, totalVideos] = await Promise.all([
+      loadCandidateVideos(question),
+      Video.countDocuments({ status: "done" }),
+    ]);
 
     if (!videos || videos.length === 0) {
       return res.status(404).json({ error: "No transcripts found." });
     }
 
-    console.log(`📚 Found ${videos.length} videos with transcripts`);
+    // Search for relevant chunks with improved retrieval
+    const matches = searchRelevantChunks(videos, question, 7);
 
-    // Create chunks with video metadata for source tracking
-    const videoChunks = [];
-    videos.forEach((video) => {
-      const transcript = video.transcript || "";
-      const chunks = splitIntoChunks(transcript, 8000);
-
-      chunks.forEach((chunk, idx) => {
-        videoChunks.push({
-          content: chunk,
-          videoId: video.videoId,
-          videoUrl: video.url,
-          videoTitle: video.title || `Video ${video.videoId}`,
-          chunkIndex: idx,
-        });
-      });
-    });
-
-    console.log(
-      `📦 Created ${videoChunks.length} chunks from ${videos.length} videos`
-    );
-
-    let partialAnswers = [];
-    let usedProviders = new Set();
-    let sourcesFound = [];
-
-    // Process chunks in batches to find relevant sources
-    for (let i = 0; i < videoChunks.length; i++) {
-      const chunk = videoChunks[i];
-
-      const prompt = `
-You are the digital assistant of **Premanand Ji Maharaj** (प्रेमानंद जी महाराज), a revered spiritual saint.
-
-🕉️ **CRITICAL INSTRUCTIONS - FOLLOW STRICTLY:**
-
-1. **LANGUAGE PRIORITY (सबसे पहले):**
-   - **FIRST**: Always respond in the style and voice of Premanand Ji Maharaj
-   - Detect user's question language automatically
-   - If language="${language}" is specified, respond in that language
-   - Use **simple, easy words** that common people understand (आम बोलचाल की भाषा)
-   - Avoid heavy Sanskrit/complex words unless necessary
-   - Make it feel warm, devotional, and accessible
-
-2. **TONE (स्वर):**
-   - ${
-     tone === "premand"
-       ? "Devotional, peaceful, exactly like Premanand Ji's teaching style"
-       : tone === "brief"
-       ? "Brief and clear"
-       : "Detailed but simple"
-   }
-   - Never use "my dear child" or personal addressing
-   - Be humble, respectful, and simple
-   - Focus on clarity and feeling
-
-3. **SOURCE ATTRIBUTION (स्रोत):**
-   - If you find relevant answer in the transcript, you MUST include:
-     * Video ID: ${chunk.videoId}
-     * A brief quote or reference from the transcript
-   - Format your response as JSON:
-     {
-       "answer": "your answer here in ${language}",
-       "found": true/false,
-       "videoId": "${chunk.videoId}",
-       "videoTitle": "${chunk.videoTitle}",
-       "relevantQuote": "exact words from Maharaj Ji if found"
-     }
-
-4. **IF NOT FOUND:**
-   - If no relevant answer in this chunk, return:
-     {
-       "answer": "",
-       "found": false,
-       "videoId": "${chunk.videoId}"
-     }
-
-5. **ANSWER QUALITY:**
-   - Keep answers short (3-6 lines)
-   - Use exact words from Premanand Ji when possible
-   - Make it feel like Maharaj Ji is speaking through you
-   - Be authentic to his teaching style
-
-📺 **Video Source:**
-Video ID: ${chunk.videoId}
-Title: ${chunk.videoTitle}
-URL: ${chunk.videoUrl}
-
-📜 **Transcript Content (Pravachan):**
-${chunk.content}
-
-❓ **User's Question:**
-${question}
-
-**RESPOND IN JSON FORMAT ONLY:**
-`;
-
-      try {
-        console.log(
-          `\n🧠 Processing chunk ${i + 1}/${videoChunks.length} from video ${
-            chunk.videoId
-          }...`
-        );
-        const { response, provider } = await callAIWithFallback(prompt);
-
-        // Parse JSON response
-        try {
-          let jsonResponse;
-          const jsonMatch = response.match(/\{[\s\S]*\}/);
-
-          if (jsonMatch) {
-            jsonResponse = JSON.parse(jsonMatch[0]);
-          } else {
-            // Fallback if not JSON
-            jsonResponse = {
-              answer: response.trim(),
-              found:
-                !response.includes("नहीं मिला") &&
-                !response.includes("not found"),
-              videoId: chunk.videoId,
-              videoTitle: chunk.videoTitle,
-            };
-          }
-
-          if (jsonResponse.found && jsonResponse.answer?.trim()) {
-            partialAnswers.push(jsonResponse.answer.trim());
-            sourcesFound.push({
-              videoId: jsonResponse.videoId,
-              videoTitle: jsonResponse.videoTitle,
-              videoUrl: chunk.videoUrl,
-              quote: jsonResponse.relevantQuote,
-            });
-            usedProviders.add(provider);
-          }
-        } catch (parseError) {
-          console.warn(`⚠️ Failed to parse JSON response from chunk ${i + 1}`);
-        }
-      } catch (chunkError) {
-        console.error(
-          `❌ Failed to process chunk ${i + 1}:`,
-          chunkError.message
-        );
-      }
-
-      // Stop if we have enough good answers (optimization)
-      if (partialAnswers.length >= 3) {
-        console.log(
-          `✅ Found sufficient answers (${partialAnswers.length}), stopping search...`
-        );
-        break;
-      }
-    }
-
-    if (partialAnswers.length === 0) {
+    if (matches.length === 0) {
       return res.json({
         success: true,
-        totalVideos: videos.length,
-        searchedChunks: videoChunks.length,
-        providers: Array.from(usedProviders),
-        answer:
-          language === "hindi"
-            ? "इस प्रश्न का स्पष्ट उल्लेख प्रेमानंद जी महाराज के किसी भी प्रवचन में नहीं मिला। कृपया प्रश्न को दूसरे तरीके से पूछें।"
-            : "This question is not explicitly mentioned in any of Premanand Ji Maharaj's pravachans. Please try rephrasing your question.",
+        retrievalMode: "local-index",
+        totalVideos,
+        providers: [],
+        answer: noAnswerText(language),
         sources: [],
+        sourceCount: 0,
       });
     }
 
-    console.log(
-      `✅ Found ${partialAnswers.length} relevant answers from ${sourcesFound.length} sources`
-    );
+    // Build improved prompt
+    const prompt = `तुम एक आध्यात्मिक गुरु हो - Premanand Ji Maharaj जी की शिक्षाओं पर आधारित।
 
-    // Merge answers if multiple found
-    let finalAnswer;
-    if (partialAnswers.length === 1) {
-      finalAnswer = partialAnswers[0];
-    } else {
-      const uniqueAnswers = [...new Set(partialAnswers)];
-      const mergePrompt = `
-You are the digital voice of **Premanand Ji Maharaj**.
+नीचे दिए गए प्रवचन के अंशों को पढ़ो और सवाल का जवाब दो।
 
-Below are multiple answers from different pravachans (प्रवचन) about the same question.
+${getLanguageInstruction(language)}
+${getToneInstruction(tone)}
 
-**YOUR TASK:**
-1. Combine them into ONE beautiful, unified answer
-2. Maintain Premanand Ji's devotional style and voice
-3. Keep it in ${language} language
-4. Use simple, warm words (सरल और प्यारे शब्द)
-5. Make it SHORT (5-7 lines maximum)
-6. Remove any repetition
-7. Make it feel like Maharaj Ji is speaking directly
-8. **IMPORTANT**: At the end, add a small note in the same language indicating this is from Premanand Ji Maharaj's YouTube pravachans
+नियम:
+- केवल दिए गए अंशों से जवाब दो
+- जवाब सरल, सीधा और उपयोगी होना चाहिए
+- किसी भी जानकारी का झूठ न बोलो
+- अगर अंश पूरी तरह जवाब नहीं देता, तो बताओ कि कौन सा हिस्सा मिलता है
 
-**Tone:** ${
-        tone === "premand" ? "Devotional and peaceful like Premanand Ji" : tone
-      }
+सवाल: ${question}
 
-**Language-specific source format:**
-- Hindi: "स्रोत: प्रेमानंद जी महाराज के यूट्यूब प्रवचन से लिया गया है।"
-- English: "Source: Taken from Premanand Ji Maharaj's YouTube pravachans."
-- Tamil: "மூலம்: பிரேமானந்த் ஜி மகாராஜின் யூடியூப் உரைகளிலிருந்து எடுக்கப்பட்டது."
-- Malayalam: "ഉറവിടം: പ്രേമാനന്ദ് ജി മഹാരാജിന്റെ യൂട്യൂബ് പ്രഭാഷണങ്ങളിൽ നിന്ന്."
-- Bengali: "সূত্র: প্রেমানন্দ জি মহারাজের ইউটিউব প্রবচন থেকে নেওয়া হয়েছে।"
-- Gujarati: "સ્રોત: પ્રેમાનંદ જી મહારાજના યુટ્યુબ પ્રવચનમાંથી લેવામાં આવ્યું છે."
-- Kannada: "ಮೂಲ: ಪ್ರೇಮಾನಂದ್ ಜಿ ಮಹಾರಾಜರ ಯೂಟ್ಯೂಬ್ ಪ್ರವಚನಗಳಿಂದ ತೆಗೆದುಕೊಳ್ಳಲಾಗಿದೆ."
+प्रवचन अंश:
+${formatEvidence(matches)}
 
-Choose the appropriate source line based on the ${language} language.
+जवाब (सीधे और संक्षिप्त):`;
 
-**Partial Answers:**
-${uniqueAnswers.map((ans, i) => `${i + 1}. ${ans}`).join("\n\n")}
-
-**Provide the FINAL UNIFIED ANSWER in ${language} with source note at the end:**
-`;
-
-      console.log(`\n🔀 Merging ${uniqueAnswers.length} answers...`);
-      const { response: merged, provider: mergeProvider } =
-        await callAIWithFallback(mergePrompt);
-      usedProviders.add(mergeProvider);
-      finalAnswer = merged?.trim() || partialAnswers[0];
-    }
-
-    // Remove duplicate sources
-    const uniqueSources = sourcesFound.reduce((acc, source) => {
-      if (!acc.find((s) => s.videoId === source.videoId)) {
-        acc.push(source);
-      }
-      return acc;
-    }, []);
+    const { response, provider } = await callAIWithFallback(prompt);
 
     res.json({
       success: true,
-      totalVideos: videos.length,
-      searchedChunks: videoChunks.length,
-      providers: Array.from(usedProviders),
-      answer: finalAnswer,
-      sources: uniqueSources.map((s) => ({
-        videoId: s.videoId,
-        title: s.videoTitle,
-        url: s.videoUrl,
-        quote: s.quote,
+      retrievalMode: "local-index",
+      totalVideos,
+      candidateVideos: videos.length,
+      providers: [provider],
+      answer: response.trim(),
+      sources: matches.map((match) => ({
+        videoId: match.videoId,
+        title: match.title,
+        url: match.url,
+        mediaUrl: match.mediaUrl,
+        sourceType: match.sourceType,
+        startTime: match.startTime,
+        endTime: match.endTime,
+        quote: cleanQuote(match.quote),
+        score: Number(match.score.toFixed(2)),
       })),
-      sourceCount: uniqueSources.length,
+      sourceCount: matches.length,
     });
-  } catch (err) {
-    console.error("❌ Error in askFromAllTranscripts:", err);
-
+  } catch (error) {
+    console.error("Error in askFromIndexedTranscripts:", error);
     res.status(500).json({
       error: "Internal server error",
-      message: err.message || "Something went wrong. Please try again.",
+      message: error.message || "Something went wrong.",
     });
   }
 };
 
-module.exports = askFromAllTranscripts;
+module.exports = askFromIndexedTranscripts;
