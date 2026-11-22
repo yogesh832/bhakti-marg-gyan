@@ -36,7 +36,7 @@ const Teachings = () => {
             Core Teachings
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Fundamental principles of Bhakti Marg as taught by Premanand Maharaj Ji
+            Fundamental principles of Bhakti Marg as taught by Premaanand Maharaj Ji
           </p>
         </div>
 
@@ -70,7 +70,7 @@ const Teachings = () => {
                 When we love God, we naturally love all beings."
               </p>
               <footer className="text-sm text-muted-foreground">
-                — Premanand Maharaj Ji
+                — Premaanand Maharaj Ji
               </footer>
             </blockquote>
           </Card>

@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS transcript_quality (
+  video_id VARCHAR(255) PRIMARY KEY REFERENCES videos(video_id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  report JSONB NOT NULL,
+  checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

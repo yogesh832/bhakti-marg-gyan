@@ -11,6 +11,17 @@ node_modules
 dist
 dist-ssr
 *.local
+server/seed-progress/
+server/.env
+server/temp/audio-*
+mobile/android/
+mobile/ios/
+mobile/.expo/
+mobile/*.jks
+mobile/*.keystore
+mobile/credentials.json
+mobile/credentials/
+mobile/*.aab
 
 # Editor directories and files
 .vscode/*

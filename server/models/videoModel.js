@@ -2,15 +2,18 @@ const mongoose = require("mongoose");
 
 const chunkSchema = new mongoose.Schema(
   {
+    chunkId: { type: String },          // stable ID for deduplication: `${videoId}::${index}`
     index: Number,
     startTime: Number,
     endTime: Number,
     text: String,
+    cleanedText: { type: String },      // cleaned version for search
     source: {
       type: String,
       enum: ["youtube-caption", "whisper", "assemblyai", "estimated"],
       default: "estimated",
     },
+    embedding: { type: [Number] },       // vector embedding for semantic search
   },
   { _id: false }
 );

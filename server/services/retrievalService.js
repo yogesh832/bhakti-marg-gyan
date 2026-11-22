@@ -13,8 +13,10 @@ const STOP_WORDS = new Set([
 
 // Clean transcript text - remove repetitions and normalize
 const cleanText = (text = "") => {
-  // Remove repeated patterns like "राधा राधा राधा राधा" (more than 3 times)
-  let cleaned = text.replace(/(.{2,})\1{3,}/g, '$1$1$1');
+  // Collapse repeated whole-word runs like "राधा राधा राधा राधा" (more than 3 times).
+  // Word-bounded regex: the old /(.{2,})\1{3,}/g backtracked catastrophically
+  // on ordinary sentences (~10ms+ per chunk).
+  let cleaned = text.replace(/(\S{1,20})(\s+\1){3,}/g, '$1 $1 $1');
 
   // Remove filler words repeated more than twice
   cleaned = cleaned.replace(/(भजन|राधा|प्रभु|भगवान|हरि|कृष्ण)\s*(?:\1\s*){2,}/gi, '$1');
@@ -34,11 +36,15 @@ const normalizeText = (value = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
-// Tokenize with better handling
-const tokenize = (value = "") =>
-  normalizeText(value)
-    .split(" ")
-    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+// Tokenize with Unicode-aware word boundary splitting
+const tokenize = (value = "") => {
+  if (!value) return [];
+  const lower = value.toLowerCase();
+  // Use Devanagari Unicode range [ऀ-ॿ] to match whole Hindi words
+  // combined with ASCII alphanumeric for English words
+  const words = lower.match(/[ऀ-ॿ॰-ॿ]+|[a-z0-9]+/g) || [];
+  return words.filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+};
 
 // Calculate similarity between two strings
 const jaccardSimilarity = (tokens1, tokens2) => {
@@ -226,10 +232,9 @@ const searchRelevantChunks = (videos, question, limit = 7) => {
     let chunks;
 
     if (video.chunks && video.chunks.length > 0) {
-      // Process existing chunks
-      chunks = video.chunks
-        .map(c => ({ ...c, text: cleanText(c.text || "") }))
-        .filter(c => c.text && c.text.length > 30);
+      // Chunks were already cleaned at ingestion (buildChunksFromTranscript) —
+      // re-cleaning here wastes ~8ms per chunk for no benefit.
+      chunks = video.chunks.filter(c => c.text && c.text.length > 30);
     } else if (video.transcript) {
       // Fallback to transcript splitting
       chunks = splitPlainTranscript(video.transcript);
@@ -239,7 +244,7 @@ const searchRelevantChunks = (videos, question, limit = 7) => {
 
     for (const chunk of chunks) {
       const score = scoreChunk(questionTokens, chunk.text);
-      if (score <= 0.5) continue; // Minimum threshold
+      if (score <= 0.1) continue; // Minimum threshold
 
       allChunks.push({
         score,
@@ -253,7 +258,7 @@ const searchRelevantChunks = (videos, question, limit = 7) => {
           Math.ceil(chunk.endTime || (chunk.startTime || 0) + 45),
           Math.floor(chunk.startTime || 0) + 12
         ),
-        quote: chunk.text.substring(0, 500), // Limit quote length
+        quote: chunk.text, // Full chunk (~900 chars) — cutting mid-text left proverbs/sentences truncated
         chunkIndex: chunk.index,
       });
     }

@@ -5,7 +5,11 @@
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "migration:neon:dry-run": "node scripts/migrateToNeon.js --dry-run",
+    "migration:neon": "node scripts/migrateToNeon.js",
+    "migration:neon:verify": "node scripts/verifyNeonMigration.js",
+    "test": "node tests/searchProvider.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -23,6 +27,7 @@
     "mongoose": "^7.6.1",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.51.0",
+    "pg": "^8.23.1",
     "uuid": "^9.0.1",
     "youtube-transcript": "^1.2.1"
   },

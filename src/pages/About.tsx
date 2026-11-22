@@ -21,7 +21,7 @@ const About = () => {
             <h2 className="text-2xl font-semibold mb-4 text-primary">The Spiritual Guide</h2>
             <div className="space-y-4 text-foreground/90 leading-relaxed">
               <p>
-                Premanand Maharaj Ji is a revered spiritual teacher who has dedicated his life to spreading 
+                Premaanand Maharaj Ji is a revered spiritual teacher who has dedicated his life to spreading 
                 the message of divine love and devotion. Through his teachings, countless seekers have found 
                 the path to spiritual awakening and self-realization.
               </p>

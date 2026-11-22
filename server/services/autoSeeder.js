@@ -4,11 +4,14 @@
  * Processes one video at a time to avoid rate limiting
  */
 
-const Video = require("../models/videoModel");
+const { getPool } = require("../db/neonDb");
+const { syncSeedToNeon } = require("./syncSeedToNeon");
 const axios = require("axios");
 const { execFile } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const { assertAssemblyAvailable, recordBillingFailure } = require("./providerAvailability");
+const { transcribeWithDeepgram } = require("./deepgramTranscription");
 
 const TEMP_DIR = path.join(__dirname, "../temp");
 fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -48,43 +51,42 @@ const safeFileName = (value = "video") =>
 
 // Check if video already exists in DB
 const videoExists = async (videoId) => {
-  const existing = await Video.findOne({ videoId });
-  return !!existing;
+  const { rows } = await getPool().query("SELECT 1 FROM videos v WHERE video_id=$1 AND status='done' AND length(coalesce(transcript,''))>0 AND EXISTS(SELECT 1 FROM transcript_chunks c WHERE c.video_id=v.video_id)", [videoId]);
+  return rows.length > 0;
 };
 
-// Fetch YouTube caption transcript
+// JSON3 carries each spoken fragment once, unlike rolling rendered VTT windows.
+const { parseJson3, requireQuality, buildSafeChunks, prepareTranscript, normalizeSegments } = require('./transcriptQuality');
 async function fetchYouTubeCaptionTranscript(videoId, videoUrl) {
-  const { YoutubeTranscript } = require("youtube-transcript");
-  // Try Hindi first since these are Hindi videos
-  const langs = ["hi", "en"];
-
-  for (const lang of langs) {
-    try {
-      console.log(`   Trying ${lang} captions...`);
-      const transcript = await YoutubeTranscript.fetchTranscript(videoUrl || videoId, { lang });
-      if (!transcript || transcript.length === 0) {
-        console.log(`   No ${lang} transcript content`);
-        continue;
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ekantik-quality-'));
+  try {
+    for (const lang of ['hi', 'en']) {
+      const prefix = path.join(dir, lang);
+      try {
+        await new Promise((resolve, reject) => execFile('yt-dlp', [
+          '--write-subs', '--write-auto-subs', '--sub-lang', lang, '--sub-format', 'json3',
+          '--write-info-json', '--skip-download', '--no-playlist', '--no-warnings',
+          '--socket-timeout', '25', '--retries', '1', '-o', prefix, videoUrl || videoId
+        ], { timeout: 180000 }, error => error ? reject(error) : resolve()));
+        const file = prefix + '.' + lang + '.json3';
+        if (!fs.existsSync(file)) continue;
+        const metadata = JSON.parse(fs.readFileSync(prefix + '.info.json', 'utf8'));
+        if (!(metadata.duration > 0)) throw new Error('Caption duration missing');
+        const segments = normalizeSegments(parseJson3(JSON.parse(fs.readFileSync(file, 'utf8')), metadata.duration));
+        const quality = requireQuality(segments, metadata.duration);
+        console.log('Caption quality passed: ' + segments.length + ' source fragments');
+        return { transcript: segments.map(s => s.text).join(' '), segments, source: 'youtube-caption', quality };
+      } catch (error) {
+        if (error.code === 'TRANSCRIPT_QUALITY') throw error;
+        console.log('No usable ' + lang + ' caption download: ' + error.message.slice(0, 160));
       }
-
-      const segments = transcript.map((item) => ({
-        text: item.text,
-        startTime: Number(item.offset || 0) / 1000,
-        endTime: Number(item.offset || 0) / 1000 + Number(item.duration || 0) / 1000,
-        source: "youtube-caption",
-      }));
-
-      console.log(`   ✅ Got ${segments.length} segments in ${lang}`);
-      return {
-        transcript: segments.map((s) => s.text).join(" "),
-        segments,
-        source: "youtube-caption",
-      };
-    } catch (error) {
-      console.warn(`   Caption fetch failed for lang=${lang}: ${error.message}`);
     }
+    return null;
+  } finally {
+    // This freshly-created, task-owned temp directory contains processing files only.
+    if (path.dirname(dir) === os.tmpdir() && path.basename(dir).startsWith('ekantik-quality-')) fs.rmSync(dir, { recursive: true, force: true });
   }
-  return null;
 }
 
 // Download audio from YouTube
@@ -106,13 +108,14 @@ async function downloadYouTubeAudio(videoUrl, videoId) {
           "-f", format,
           "-x", "--audio-format", "mp3",
           "--ffmpeg-location", ffmpegLocation,
+          "--js-runtimes", "node",
           "-o", outputPath,
           videoUrl,
           "--no-playlist",
           "--no-warnings",
           "--no-check-certificate",
         ];
-        execFile("yt-dlp", args, (error, stdout, stderr) => {
+        execFile("yt-dlp", args, { timeout: 900000 }, (error, stdout, stderr) => {
           if (error) {
             console.warn(`yt-dlp error: ${stderr || error.message}`);
             return reject(new Error(stderr || error.message));
@@ -161,6 +164,11 @@ async function transcribeWithWhisper(audioPath) {
 
 // Transcribe with AssemblyAI fallback
 async function transcribeWithAssemblyAI(audioPath) {
+  assertAssemblyAvailable();
+  return require("./assemblyCredentialFallback").runWithAssemblyCredentials(key => transcribeWithAssemblyCredential(audioPath, key));
+}
+async function transcribeWithAssemblyCredential(audioPath, ASSEMBLYAI_API_KEY) {
+  try {
   if (!ASSEMBLYAI_API_KEY) throw new Error("ASSEMBLYAI_API_KEY required");
 
   const audioData = fs.readFileSync(audioPath);
@@ -204,10 +212,18 @@ async function transcribeWithAssemblyAI(audioPath) {
     segments,
     source: "assemblyai",
   };
+  } catch (error) {
+    const detail = error.response?.data?.error;
+    // Credential wrapper records exhaustion only after checking fallback availability.
+    if (typeof detail === 'string') error.message = 'AssemblyAI ' + (error.response.status || '') + ': ' + detail.replace(/https?:\/\/\S+/g, '[URL]').slice(0, 350);
+    throw error;
+  }
 }
 
 // Auto-transcribe audio
-async function transcribeAudio(audioPath) {
+async function transcribeAudio(audioPath, provider) {
+  if (provider === "deepgram") return transcribeWithDeepgram(audioPath);
+  if (provider === "assemblyai") return transcribeWithAssemblyAI(audioPath);
   const stats = fs.statSync(audioPath);
   if (stats.size <= 25 * 1024 * 1024 && OPENAI_API_KEY) {
     try {
@@ -219,36 +235,42 @@ async function transcribeAudio(audioPath) {
   return transcribeWithAssemblyAI(audioPath);
 }
 
-// Build chunks from transcript
-const { buildChunksFromTranscript } = require("./retrievalService");
-
 // Process single video
-async function processVideo(videoData) {
-  const { url, title } = videoData;
+async function processVideo(videoData, persistence = {}) {
+  const { url, title, transcriptProvider = process.env.TRANSCRIPT_PROVIDER || "assemblyai" } = videoData;
   const videoId = getYouTubeId(url);
 
   console.log(`\n📥 Processing: ${title || videoId}`);
 
   // Check if already exists
-  if (await videoExists(videoId)) {
+  if (await (persistence.exists || videoExists)(videoId)) {
     console.log(`⏭️  Already exists, skipping: ${videoId}`);
     return { videoId, status: "skipped", reason: "already exists" };
   }
 
-  let transcriptResult = await fetchYouTubeCaptionTranscript(videoId, url);
-
   let audioPath = "";
+  try {
+  let transcriptResult = await fetchYouTubeCaptionTranscript(videoId, url);
   if (!transcriptResult) {
+    if (transcriptProvider === "assemblyai") assertAssemblyAvailable();
     console.log(`🎧 No captions, downloading audio...`);
     audioPath = await downloadYouTubeAudio(url, videoId);
-    transcriptResult = await transcribeAudio(audioPath);
+    transcriptResult = await transcribeAudio(audioPath, transcriptProvider);
+    const duration = await new Promise((resolve, reject) => execFile("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", audioPath], { timeout: 30000 }, (error, stdout) => {
+      const seconds = Number(String(stdout).trim());
+      if (error || !(seconds > 0)) reject(new Error("Cannot verify audio duration for quality gate"));
+      else resolve(seconds);
+    }));
+    transcriptResult.quality = requireQuality(transcriptResult.segments, duration);
   }
 
-  const chunks = buildChunksFromTranscript(transcriptResult.transcript, transcriptResult.segments);
+  const { quality, chunks, transcript } = prepareTranscript(transcriptResult.segments, transcriptResult.quality?.duration);
+  transcriptResult.transcript = transcript;
+  if (!transcriptResult.transcript?.trim() || !chunks.length) {
+    throw new Error("Empty transcript: video was not marked done");
+  }
 
-  await Video.findOneAndUpdate(
-    { videoId },
-    {
+  const record = {
       videoId,
       url,
       sourceType: "youtube",
@@ -256,18 +278,50 @@ async function processVideo(videoData) {
       transcript: transcriptResult.transcript,
       chunks,
       status: "done",
-      meta: { transcriptSource: transcriptResult.source, seededAt: new Date() },
-    },
-    { upsert: true, new: true }
-  );
-
-  // Cleanup audio file
-  if (audioPath && fs.existsSync(audioPath)) {
-    fs.unlinkSync(audioPath);
+      meta: { transcriptSource: transcriptResult.source, seededAt: new Date(), quality },
+    };
+  if (persistence.save) {
+    await persistence.save(record);
+  } else {
+    await syncSeedToNeon(record);
   }
 
   console.log(`✅ Done: ${videoId} (${chunks.length} chunks)`);
   return { videoId, status: "success", chunks: chunks.length };
+  } finally {
+    if (audioPath && fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+  }
+}
+
+// Mark video as failed so it's not retried endlessly
+async function markVideoFailed(videoId, url, title, reason) {
+  // A rejected source is never published as a transcript in either database.
+  console.warn('Video not saved: ' + videoId + ': ' + reason.slice(0, 250));
+}
+
+// Wrap processVideo to catch access-denied failures
+async function processVideoSafe(videoData) {
+  const { url, title } = videoData;
+  const videoId = getYouTubeId(url);
+  try {
+    return await processVideo(videoData);
+  } catch (err) {
+    // Don't retry age-restricted, private, or unavailable videos
+    const unrecoverable = [
+      "Sign in to confirm your age",
+      "Private video",
+      "is not available",
+      "Video unavailable",
+    ];
+    const isUnrecoverable = unrecoverable.some((msg) => err.message && err.message.includes(msg));
+    if (isUnrecoverable) {
+      console.error(`❌ Unrecoverable (will not retry): ${err.message}`);
+      await markVideoFailed(videoId, url, title, err.message);
+      return { videoId, status: "skipped", reason: err.message };
+    }
+    // Rethrow for retry on actual errors
+    throw err;
+  }
 }
 
 // Main auto-seed function
@@ -288,7 +342,7 @@ async function autoSeed(seeds = VIDEO_SEED_LIST) {
     console.log(`\n[${i + 1}/${seeds.length}]`);
 
     try {
-      const result = await processVideo(video);
+      const result = await processVideoSafe(video);
       if (result.status === "skipped") {
         skipped++;
       } else if (result.status === "success") {
@@ -321,5 +375,13 @@ async function autoSeed(seeds = VIDEO_SEED_LIST) {
   return { total: seeds.length, success, skipped, failed, errors };
 }
 
-// Export for use
-module.exports = { autoSeed, processVideo, VIDEO_SEED_LIST, getYouTubeId };
+async function transcribeAudioFile(audioPath) {
+ const duration = await new Promise((resolve, reject) => execFile('ffprobe', ['-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',audioPath], {timeout:30000}, (error, stdout) => {
+  const seconds=Number(String(stdout).trim());
+  if(error || !(seconds>0)) reject(new Error('Cannot verify media duration'));
+  else resolve(seconds);
+ }));
+ const result=await transcribeAudio(audioPath, process.env.TRANSCRIPT_PROVIDER || 'assemblyai');
+ return {...result, quality:requireQuality(result.segments,duration)};
+}
+module.exports = { autoSeed, processVideo, VIDEO_SEED_LIST, getYouTubeId, fetchYouTubeCaptionTranscript, transcribeAudioFile };

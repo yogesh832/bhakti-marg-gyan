@@ -1,10 +1,11 @@
 /* ---------- server.js ---------- */
 const express = require("express");
-require("dotenv").config();
+require("dotenv").config({ path: require("path").resolve(__dirname, ".env") });
 const mongoose = require("mongoose");
 const { execSync } = require("child_process");
 const cors = require("cors");
 const path = require("path");
+const axios = require("axios");
 
 const ingestRouter = require("./controllers/ingestController");
 const askRouter = require("./controllers/askController");
@@ -31,6 +32,72 @@ console.log("🔧 Starting application...");
 // ✅ Routes
 app.use("/api/ingest", ingestRouter);
 app.use("/api/ask", askRouter);
+
+app.post("/api/tts", async (req, res) => {
+  try {
+    const { text, voiceGender = "male" } = req.body || {};
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+
+    if (!apiKey) {
+      return res.status(503).json({
+        success: false,
+        error: "ElevenLabs API key is not configured.",
+      });
+    }
+
+    const cleanText = String(text || "")
+      .replace(/<<<more>>>[\s\S]*$/i, "")
+      .replace(/^(SHORT ANSWER|संक्षिप्त उत्तर)\s*[:\-–—]?\s*/i, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\[(?:Source|स्रोत)\s*\d+\]/gi, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 2200);
+
+    if (!cleanText) {
+      return res.status(400).json({ success: false, error: "Text is required." });
+    }
+
+    const voiceId =
+      voiceGender === "female"
+        ? process.env.ELEVENLABS_FEMALE_VOICE_ID || process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL"
+        : process.env.ELEVENLABS_MALE_VOICE_ID || process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
+
+    const response = await axios.post(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
+        text: cleanText,
+        model_id: process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2",
+        voice_settings: {
+          stability: 0.58,
+          similarity_boost: 0.78,
+          style: 0.12,
+          use_speaker_boost: true,
+        },
+      },
+      {
+        headers: {
+          "xi-api-key": apiKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        responseType: "arraybuffer",
+        timeout: 30000,
+      }
+    );
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(Buffer.from(response.data));
+  } catch (error) {
+    const status = error.response?.status || 500;
+    console.error("ElevenLabs TTS error:", status, error.message);
+    return res.status(status === 401 ? 401 : 502).json({
+      success: false,
+      error: "Could not generate speech right now.",
+    });
+  }
+});
 
 // Auto-seed endpoint - GET /api/seed to trigger, or POST with custom videos
 app.get("/api/seed", async (req, res) => {
@@ -80,6 +147,7 @@ function checkEnvVariables() {
     "GROQ_API_KEY",
     "OPENAI_API_KEY",
     "ASSEMBLYAI_API_KEY",
+    "ELEVENLABS_API_KEY",
   ];
 
   const missing = required.filter((key) => !process.env[key]);
@@ -165,8 +233,12 @@ async function start() {
 console.log("🚀 Calling start function...");
 start();
 
-// Auto-seed on startup (always runs, checks for pending videos)
+// Server startup ingestion is opt-in; the resumable worker owns routine batches.
 mongoose.connection.once("open", async () => {
+  if (process.env.AUTO_SEED !== "true") {
+    console.log("Auto-seed requires AUTO_SEED=true; the separate resumable worker is preferred.");
+    return;
+  }
   console.log("📥 Checking for pending videos to seed...");
   try {
     const seeds = require("./config/seeds.json");

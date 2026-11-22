@@ -153,7 +153,7 @@ const Dashboard = () => {
       const res = await fetch(`${API_BASE}/api/ingest/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoUrl: url, videoUrl, title: title || url }),
+        body: JSON.stringify({ videoUrl, title: title || url }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Ingest failed");

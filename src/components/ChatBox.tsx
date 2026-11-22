@@ -2,7 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle, PlayCircle, X, Radio } from "lucide-react";
+import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle, PlayCircle, X, Radio, ChevronDown, ChevronUp } from "lucide-react";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 
 // MessageBubble Component
 const formatTime = (seconds = 0) => {
@@ -70,15 +72,341 @@ const VideoSectionPlayer = ({ source, onClose }) => {
   );
 };
 
-const MessageBubble = ({ message, onPlaySource }) => {
+// Compact label for a source: "#651 · 29-08-2024" instead of the full long title
+// (full title stays in the tooltip). Keeps the UI tidy.
+const shortTitle = (source) => {
+  const title = source?.title || "";
+  const num = title.match(/#(\d+)/)?.[1];
+  const date = title.match(/(\d{2}-\d{2}-\d{4})/)?.[1];
+  if (num) return date ? `#${num} · ${date}` : `#${num}`;
+  return title.length > 45 ? `${title.slice(0, 45)}…` : title || `Video ${source?.videoId || ""}`;
+};
+
+// Turn inline citations in the answer text into clickable links.
+// Handles "[Source 1]", "[स्रोत 1]", "(वीडियो #708)", "वीडियो #708" — linked to
+// the matching source's YouTube URL (with timestamp). Short label, full title in tooltip.
+const CITATION_SPLIT_RE = /(\[(?:Source|स्रोत)\s*\d+\]|\(\s*वीडियो\s*#\d+\s*\)|वीडियो\s*#\d+)/g;
+
+const renderContentWithLinks = (content, sources = []) => {
+  if (!sources.length) return content;
+
+  return content.split(CITATION_SPLIT_RE).map((part, i) => {
+    let match = part.match(/\[(?:Source|स्रोत)\s*(\d+)\]/i);
+    let source = match ? sources[Number(match[1]) - 1] : undefined;
+
+    if (!source) {
+      match = part.match(/वीडियो\s*#(\d+)/);
+      if (match) source = sources.find((s) => (s.title || "").includes(`#${match[1]}`));
+    }
+
+    if (!source || !match) return part;
+
+    return (
+      <a
+        key={i}
+        href={source.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={source.title}
+        className="text-yellow-300 hover:text-yellow-100 underline decoration-yellow-400/50 underline-offset-2"
+      >
+        🎥 {shortTitle(source)}
+      </a>
+    );
+  });
+};
+
+// Read-more toggle labels in the selected language
+const READ_MORE_LABELS = {
+  hindi: { more: "और समझें", less: "संक्षिप्त करें" },
+  english: { more: "Read more", less: "Show less" },
+  tamil: { more: "மேலும் அறிய", less: "சுருக்கமாக" },
+  malayalam: { more: "കൂടുതൽ മനസ്സിലാക്കൂ", less: "ചുരുക്കം" },
+  bengali: { more: "আরও বুঝুন", less: "সংক্ষেপে" },
+  gujarati: { more: "વધુ સમજો", less: "ટૂંકમાં" },
+  kannada: { more: "ಇನ್ನಷ್ಟು ಅರ್ಥಮಾಡಿಕೊಳ್ಳಿ", less: "ಸಂಕ್ಷಿಪ್ತವಾಗಿ" },
+};
+
+const stripAnswerLabel = (text = "") =>
+  text
+    .replace(/^\s*(SHORT ANSWER|DETAILED ANSWER|NORMAL ANSWER|संक्षिप्त उत्तर|विस्तृत उत्तर)\s*[:\-–—]?\s*/i, "")
+    .trim();
+
+const splitAssistantAnswer = (content = "") => {
+  const normalized = String(content || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .trim();
+
+  if (!normalized) return { shortAnswer: "", detailedAnswer: "" };
+
+  if (normalized.includes("<<<more>>>")) {
+    const [first, ...rest] = normalized.split("<<<more>>>");
+    return {
+      shortAnswer: stripAnswerLabel(first),
+      detailedAnswer: stripAnswerLabel(rest.join("<<<more>>>")),
+    };
+  }
+
+  const detailedMatch = normalized.match(/\n?\s*(?:DETAILED ANSWER|विस्तृत उत्तर)\s*[:\-–—]\s*/i);
+  if (detailedMatch?.index && detailedMatch.index > 0) {
+    return {
+      shortAnswer: stripAnswerLabel(normalized.slice(0, detailedMatch.index)),
+      detailedAnswer: stripAnswerLabel(normalized.slice(detailedMatch.index + detailedMatch[0].length)),
+    };
+  }
+
+  return { shortAnswer: stripAnswerLabel(normalized), detailedAnswer: "" };
+};
+
+const cleanTextForSpeech = (text = "") =>
+  splitAssistantAnswer(text)
+    .shortAnswer.replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/#{1,6}\s/g, "")
+    .replace(/\[(?:Source|स्रोत)\s*\d+\]/gi, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[🙏🕉️✨💫🌟🎥📺✓▲▼]/g, "")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, ". ")
+    .replace(/\.\s*\./g, ".")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const SPIRITUAL_QUESTION_RE =
+  /(adhyat|adhyatm|spiritual|bhakti|bhagwan|god|krishna|radha|ram|naam|nam jap|jap|guru|sadhu|sant|shastra|ved|gita|geeta|upanishad|satsang|pravachan|premaanand|premanand|maharaj|bhajan|seva|sadhana|dhyan|meditation|maya|moksh|mukti|atma|aatma|karma|paap|punya|dharma|mantra|mandir|vrindavan|वेद|शास्त्र|गीता|उपनिषद|भक्ति|भगवान|कृष्ण|राधा|राम|नाम|जप|गुरु|संत|महाराज|सत्संग|प्रवचन|भजन|सेवा|साधना|ध्यान|माया|मोक्ष|मुक्ति|आत्मा|कर्म|पाप|पुण्य|धर्म|मंत्र|मंदिर|वृंदावन)/i;
+
+const isSpiritualQuestion = (question = "") => SPIRITUAL_QUESTION_RE.test(question);
+
+const DEVANAGARI_ENGLISH_RE =
+  /(कैन|वी|हैव|हेव|कन्वर्सेशन|कनवरसेशन|टॉक|इंग्लिश|व्हाट|वॉट|इज़|इज|लव|अंडरस्टैंड|देयर|प्लीज|यस|नो|ओके|हेलो|हाय)/i;
+
+const normalizeLiveQuestion = (question = "") =>
+  question
+    .toLowerCase()
+    .replace(/[?.!,।]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getLiveReplyLanguage = (question = "", selectedLanguage = "auto") => {
+  const text = question.trim();
+  const lower = text.toLowerCase();
+
+  if (
+    /\b(english|speak english|talk english|can we talk|can we have|conversation|what is|love|understand)\b/i.test(lower) ||
+    /(इंग्लिश|अंग्रेजी|अंग्रेज़ी|इंगलिश)/.test(text) ||
+    DEVANAGARI_ENGLISH_RE.test(text)
+  ) {
+    return "english";
+  }
+  if (/[஀-௿]/.test(text)) return "tamil";
+  if (/[ഀ-ൿ]/.test(text)) return "malayalam";
+  if (/[ঀ-৿]/.test(text)) return "bengali";
+  if (/[઀-૿]/.test(text)) return "gujarati";
+  if (/[ಀ-೿]/.test(text)) return "kannada";
+  if (/[ऀ-ॿ]/.test(text)) return "hindi";
+  if (/[a-z]/i.test(text)) return "english";
+  return selectedLanguage === "auto" ? "hindi" : selectedLanguage;
+};
+
+const getLiveConversationReply = (question = "", selectedLanguage = "auto") => {
+  const text = question.trim();
+  const lower = text.toLowerCase();
+  const normalized = normalizeLiveQuestion(text);
+  const replyLanguage = getLiveReplyLanguage(text, selectedLanguage);
+  const isGreeting = /\b(hi|hello|hey|namaste|radhe|radhey|kaise ho|how are you)\b/i.test(lower) || /(हाय|हेलो|नमस्ते|राधे)/.test(text);
+  const asksForConversation =
+    /\b(can we talk|can we have.*conversation|conversation|talk to me)\b/i.test(lower) ||
+    /(कैन.*वी.*(कन्वर्सेशन|कनवरसेशन|टॉक)|कन्वर्सेशन)/.test(normalized);
+  const asksAboutLove =
+    /\b(what is love|what's love|understand love|meaning of love)\b/i.test(lower) ||
+    /(व्हाट|वॉट).*(लव)|(लव).*(अंडरस्टैंड|समझ)/.test(normalized);
+
+  if (replyLanguage === "english") {
+    if (asksForConversation) {
+      return "Yes, we can have a conversation. Speak naturally in any language. I will answer normally, and when your question is spiritual I will check Premaanand Ji Maharaj's pravachan sources.";
+    }
+    if (asksAboutLove) {
+      return "Love is care that wants the good of someone without trying to own them. It feels warm, but it also shows up as patience, respect, responsibility, and truth. If you are not able to understand it right now, start by noticing this: real love gives peace and clarity; attachment usually brings fear, control, and restlessness.";
+    }
+  }
+
+  const replies = {
+    english: {
+      greeting: "Yes, we can talk in English. I will reply in whatever language you use. If the question is spiritual, I will check Premaanand Ji Maharaj's pravachan sources.",
+      normal: "Yes. No language boundary now. I will reply in the language you speak, and only use video sources when the question is spiritual.",
+    },
+    hindi: {
+      greeting: "हाँ, मैं सुन रहा हूँ। आप जिस भाषा में बोलेंगे, मैं उसी के हिसाब से उत्तर दूँगा। आध्यात्मिक प्रश्न होगा तो प्रवचन स्रोतों से देखूँगा।",
+      normal: "अब भाषा की सीमा नहीं है। आप जिस भाषा में बोलेंगे, मैं उसी में उत्तर देने की कोशिश करूँगा; आध्यात्मिक प्रश्न होगा तो वीडियो स्रोत खोलूँगा।",
+    },
+    tamil: {
+      greeting: "ஆம், நான் கேட்கிறேன். நீங்கள் எந்த மொழியில் பேசினாலும் அதற்கேற்றபடி பதிலளிப்பேன்.",
+      normal: "இனி மொழி வரம்பு இல்லை. ஆன்மிகக் கேள்வி என்றால் மட்டும் வீடியோ ஆதாரங்களைப் பார்க்கிறேன்.",
+    },
+    malayalam: {
+      greeting: "അതെ, ഞാൻ കേൾക്കുന്നു. നിങ്ങൾ സംസാരിക്കുന്ന ഭാഷയ്ക്ക് അനുസരിച്ച് മറുപടി നൽകാം.",
+      normal: "ഇനി ഭാഷാ പരിധിയില്ല. ആത്മീയ ചോദ്യം ആണെങ്കിൽ മാത്രം വീഡിയോ ഉറവിടങ്ങൾ നോക്കും.",
+    },
+    bengali: {
+      greeting: "হ্যাঁ, আমি শুনছি। আপনি যে ভাষায় বলবেন, আমি সেই অনুযায়ী উত্তর দেব।",
+      normal: "এখন ভাষার কোনো সীমা নেই। আধ্যাত্মিক প্রশ্ন হলে শুধু ভিডিও উৎস দেখব।",
+    },
+    gujarati: {
+      greeting: "હા, હું સાંભળી રહ્યો છું. તમે જે ભાષામાં બોલશો, હું તે મુજબ જવાબ આપીશ.",
+      normal: "હવે ભાષાની કોઈ મર્યાદા નથી. આધ્યાત્મિક પ્રશ્ન હશે ત્યારે જ વીડિયો સ્રોત જોઈશ.",
+    },
+    kannada: {
+      greeting: "ಹೌದು, ನಾನು ಕೇಳುತ್ತಿದ್ದೇನೆ. ನೀವು ಯಾವ ಭಾಷೆಯಲ್ಲಿ ಮಾತನಾಡುತ್ತೀರೋ ಅದಕ್ಕೆ ತಕ್ಕಂತೆ ಉತ್ತರಿಸುತ್ತೇನೆ.",
+      normal: "ಇನ್ನು ಭಾಷೆಯ ಮಿತಿ ಇಲ್ಲ. ಆಧ್ಯಾತ್ಮಿಕ ಪ್ರಶ್ನೆಯಾದರೆ ಮಾತ್ರ ವೀಡಿಯೊ ಮೂಲಗಳನ್ನು ನೋಡುತ್ತೇನೆ.",
+    },
+  };
+
+  const selectedReplies = replies[replyLanguage] || replies.english;
+  return isGreeting ? selectedReplies.greeting : selectedReplies.normal;
+};
+
+const LANGUAGE_LABELS = {
+  auto: "Auto",
+  hindi: "Hindi",
+  english: "English",
+  tamil: "Tamil",
+  malayalam: "Malayalam",
+  bengali: "Bengali",
+  gujarati: "Gujarati",
+  kannada: "Kannada",
+};
+
+const VoiceCallPanel = ({
+  active,
+  isListening,
+  isLoading,
+  isSpeaking,
+  language,
+  onStart,
+  onStop,
+  onToggleMic,
+}) => {
+  const status = active
+    ? isListening
+      ? "LISTENING..."
+      : isLoading
+        ? "THINKING..."
+        : isSpeaking
+          ? "SPEAKING..."
+          : "READY..."
+    : "VOICE READY";
+
+  const subtitle = active
+    ? isListening
+      ? "Ask normally. Spiritual questions use pravachan sources."
+      : isLoading
+        ? "Checking whether this needs Premaanand Ji's video teachings."
+        : isSpeaking
+          ? "The assistant will listen again after the answer."
+          : "Tap the mic when you are ready to speak."
+    : "Start a hands-free conversation with voice.";
+
+  return (
+    <div
+      className={`relative z-10 mb-5 overflow-hidden border border-yellow-300/25 bg-[#090720]/95 shadow-[0_24px_70px_rgba(0,0,0,0.38)] ${
+        active ? "min-h-[520px] rounded-[28px]" : "rounded-2xl"
+      }`}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(250,204,21,0.16),transparent_35%),radial-gradient(circle_at_70%_25%,rgba(56,189,248,0.18),transparent_32%)]" />
+      <div className="pointer-events-none absolute left-4 top-4 h-5 w-5 rounded-tl-xl border-l-2 border-t-2 border-white/90" />
+
+      <div className="relative flex items-start justify-between gap-4 px-5 py-5">
+        <div>
+          <h3 className="text-base font-bold text-white">Premaanand Voice</h3>
+          <p className="mt-1 text-xs text-white/62">Your spiritual assistant + voice</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white">
+            {LANGUAGE_LABELS[language] || "Auto"}
+          </span>
+          <button
+            type="button"
+            onClick={active ? onStop : onStart}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/18"
+            title={active ? "Close live voice" : "Start live voice"}
+          >
+            {active ? <X className="h-4 w-4" /> : <Radio className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+
+      {active ? (
+        <div className="relative flex min-h-[395px] flex-col items-center justify-between px-6 pb-7 pt-6">
+          <div className="flex flex-1 flex-col items-center justify-center">
+            <div className={`voice-orb ${isListening ? "voice-orb-listening" : ""} ${isSpeaking ? "voice-orb-speaking" : ""}`}>
+              <div className="voice-orb-shine" />
+            </div>
+            <p className="mt-10 text-center text-[0.72rem] font-bold tracking-[0.32em] text-white/48">
+              {status}
+            </p>
+            <p className="mt-3 max-w-xs text-center text-xs leading-relaxed text-white/48">
+              {subtitle}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-center gap-5">
+            <button
+              type="button"
+              onClick={onToggleMic}
+              disabled={isLoading || isSpeaking}
+              className={`inline-flex h-14 w-14 items-center justify-center rounded-full transition ${
+                isListening
+                  ? "bg-white/18 text-white ring-2 ring-white/20"
+                  : "bg-white/12 text-white hover:bg-white/20"
+              } disabled:cursor-not-allowed disabled:opacity-45`}
+              title={isListening ? "Stop listening" : "Start listening"}
+            >
+              {isListening ? <StopCircle className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+            </button>
+            <button
+              type="button"
+              onClick={onStop}
+              className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-rose-500 text-white shadow-[0_12px_30px_rgba(244,63,94,0.36)] transition hover:bg-rose-400"
+              title="End live conversation"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="relative flex flex-col gap-4 px-5 pb-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-yellow-100">Live conversation</p>
+            <p className="mt-1 text-xs text-yellow-200/65">{subtitle}</p>
+          </div>
+          <Button
+            type="button"
+            onClick={onStart}
+            className="rounded-full bg-yellow-500 px-4 text-black hover:bg-yellow-400"
+          >
+            <Mic className="mr-2 h-4 w-4" /> Start talking
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MessageBubble = ({ message, onPlaySource, language = "hindi" }) => {
   const [showSources, setShowSources] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const isUser = message.role === "user";
-  
+
+  const { shortAnswer, detailedAnswer } = isUser
+    ? { shortAnswer: message.content, detailedAnswer: "" }
+    : splitAssistantAnswer(message.content);
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4`}>
       <div
         className={`
-          max-w-[80%] p-4 rounded-2xl
+          w-fit max-w-[92%] sm:max-w-[82%] p-4 rounded-2xl
           ${
             isUser
               ? "bg-gradient-to-br from-yellow-500/30 to-amber-500/20 border border-yellow-400/40 text-yellow-100"
@@ -88,8 +416,33 @@ const MessageBubble = ({ message, onPlaySource }) => {
         `}
       >
         <div className="whitespace-pre-wrap break-words leading-relaxed">
-          {message.content}
+          {renderContentWithLinks(shortAnswer, message.sources)}
         </div>
+
+        {detailedAnswer && (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setShowMore(!showMore)}
+              className="inline-flex items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-3 py-1.5 text-xs text-yellow-200 hover:bg-yellow-400/20 hover:text-yellow-50 font-semibold transition-colors"
+            >
+              {(() => {
+                const labels = READ_MORE_LABELS[language] || READ_MORE_LABELS.hindi;
+                return (
+                  <>
+                    {showMore ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {showMore ? labels.less : labels.more}
+                  </>
+                );
+              })()}
+            </button>
+            {showMore && (
+              <div className="mt-2 pt-2 border-t border-yellow-400/20 whitespace-pre-wrap break-words leading-relaxed text-yellow-50/90">
+                {renderContentWithLinks(detailedAnswer, message.sources)}
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Source Attribution - Dropdown */}
         {message.sources && message.sources.length > 0 && (
@@ -98,7 +451,7 @@ const MessageBubble = ({ message, onPlaySource }) => {
               onClick={() => setShowSources(!showSources)}
               className="flex items-center justify-between w-full text-xs text-yellow-400/90 font-semibold hover:text-yellow-300 transition-colors"
             >
-              <span>📺 प्रवचन स्रोत (Source) - {message.sources.length} video{message.sources.length > 1 ? 's' : ''}</span>
+              <span>प्रवचन स्रोत ({message.sources.length})</span>
               <span className="text-yellow-400/60">
                 {showSources ? '▲' : '▼'}
               </span>
@@ -116,18 +469,27 @@ const MessageBubble = ({ message, onPlaySource }) => {
                       <PlayCircle className="w-3 h-3" />
                       Play {formatTime(source.startTime)} - {formatTime(source.endTime)}
                     </button>
-                    <a 
-                      href={source.url} 
-                      target="_blank" 
+                    <a
+                      href={source.url}
+                      target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-yellow-300 hover:text-yellow-100 underline block mt-1"
+                      title={source.title}
+                      className="text-xs text-yellow-300 hover:text-yellow-100 underline inline-block mt-1"
                     >
-                      🎥 {source.title || `Video ${source.videoId}`}
+                      🎥 {shortTitle(source)}
                     </a>
                     {source.quote && (
-                      <div className="text-xs text-yellow-400/60 italic mt-1 ml-4">
-                        "{source.quote.substring(0, 100)}..."
-                      </div>
+                      <details className="mt-2 text-xs text-yellow-100/75">
+                        <summary className="cursor-pointer text-yellow-200 hover:text-yellow-50">
+                          Transcript passage
+                        </summary>
+                        <p className="mt-2 whitespace-pre-wrap leading-relaxed">{source.quote}</p>
+                        {source.continuation && (
+                          <p className="mt-2 whitespace-pre-wrap border-t border-yellow-400/20 pt-2 leading-relaxed">
+                            {source.continuation}
+                          </p>
+                        )}
+                      </details>
                     )}
                   </div>
                 ))}
@@ -152,6 +514,7 @@ const ChatBox = () => {
   const [showToast, setShowToast] = useState(null);
   const [activeSource, setActiveSource] = useState(null);
   const [liveVoiceMode, setLiveVoiceMode] = useState(false);
+  const [liveConversationActive, setLiveConversationActive] = useState(false);
 
   // Preferences
   const [language, setLanguage] = useState("hindi");
@@ -164,6 +527,9 @@ const ChatBox = () => {
   const audioChunksRef = useRef([]);
   const speechSynthRef = useRef(null);
   const recognitionRef = useRef(null);
+  const audioRef = useRef(null);
+  const audioUrlRef = useRef(null);
+  const liveConversationRef = useRef(false);
 
   // Toast notification helper
   const toast = {
@@ -249,15 +615,18 @@ const ChatBox = () => {
   }, [messages]);
 
   // Fetch from backend
-  const askFromTranscript = async (question) => {
+  const askFromTranscript = async (question, languageOverride) => {
     try {
-      const response = await fetch("https://bhakti-marg-gyan.onrender.com/api/ask", {
+      const response = await fetch(`${API_BASE_URL}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, language, tone }),
+        body: JSON.stringify({ question, language: languageOverride || language, tone }),
       });
 
       const data = await response.json();
+      if (!response.ok || data?.success === false || data?.error) {
+        throw new Error(data?.error || data?.message || "Server se response nahi aa raha. Dobara try karein.");
+      }
       if (data?.answer) {
         data.answer = data.answer
           .replace(/\*\*(.*?)\*\*/g, "\n\n**$1**\n")
@@ -287,34 +656,76 @@ const ChatBox = () => {
   };
 
   // Text-to-Speech function
-  const speakText = async (text, messageIndex) => {
+  const speakText = async (text, messageIndex, onComplete) => {
     if (!voiceEnabled) {
       toast.error("Voice is disabled. Enable it in preferences.");
       return;
     }
 
-    if (!window.speechSynthesis) {
-      toast.error("Text-to-speech not supported in your browser.");
-      return;
-    }
-
     try {
       // Stop any ongoing speech
-      window.speechSynthesis.cancel();
+      stopSpeaking(false);
 
       setIsSpeaking(true);
       setCurrentSpeakingIndex(messageIndex);
 
-      // Clean text for better speech - keep it simple and flat
-      const cleanText = text
-        .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold but keep text
-        .replace(/#{1,6}\s/g, '') // Remove headers
-        .replace(/\n{3,}/g, '. ') // Replace multiple newlines with periods for pauses
-        .replace(/\n/g, '. ') // Replace single newlines with periods
-        .replace(/🙏|🕉️|✨|💫|🌟/g, '') // Remove emojis
-        .replace(/\.\s*\./g, '.') // Remove double periods
-        .replace(/\s+/g, ' ') // Normalize spaces
-        .trim();
+      const cleanText = cleanTextForSpeech(text);
+
+      if (!cleanText) {
+        toast.error("Nothing readable found in this answer.");
+        setIsSpeaking(false);
+        setCurrentSpeakingIndex(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: cleanText, voiceGender }),
+        });
+
+        if (response.ok) {
+          const blob = await response.blob();
+          const audioUrl = URL.createObjectURL(blob);
+          audioUrlRef.current = audioUrl;
+          const audio = new Audio(audioUrl);
+          audioRef.current = audio;
+
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            audioUrlRef.current = null;
+            audioRef.current = null;
+            setIsSpeaking(false);
+            setCurrentSpeakingIndex(null);
+            onComplete?.();
+          };
+
+          audio.onerror = () => {
+            URL.revokeObjectURL(audioUrl);
+            audioUrlRef.current = null;
+            audioRef.current = null;
+            setIsSpeaking(false);
+            setCurrentSpeakingIndex(null);
+            toast.error("Audio playback failed.");
+          };
+
+          await audio.play();
+          toast.success("Speaking with ElevenLabs voice");
+          return;
+        }
+
+        console.warn("ElevenLabs TTS unavailable, falling back to browser voice.");
+      } catch (ttsError) {
+        console.warn("ElevenLabs TTS failed, falling back to browser voice:", ttsError);
+      }
+
+      if (!window.speechSynthesis) {
+        toast.error("Text-to-speech not supported in your browser.");
+        setIsSpeaking(false);
+        setCurrentSpeakingIndex(null);
+        return;
+      }
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
       speechSynthRef.current = utterance;
@@ -473,6 +884,7 @@ const ChatBox = () => {
         setIsSpeaking(false);
         setCurrentSpeakingIndex(null);
         speechSynthRef.current = null;
+        onComplete?.();
       };
 
       utterance.onerror = (event) => {
@@ -515,6 +927,7 @@ const ChatBox = () => {
         setIsSpeaking(false);
         setCurrentSpeakingIndex(null);
         speechSynthRef.current = null;
+        onComplete?.();
       };
 
     } catch (error) {
@@ -526,20 +939,42 @@ const ChatBox = () => {
   };
 
   // Stop speaking
-  const stopSpeaking = () => {
+  const stopSpeaking = (showNotice = true) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
     setCurrentSpeakingIndex(null);
     speechSynthRef.current = null;
-    toast.info("Speech stopped");
+    if (showNotice) toast.info("Speech stopped");
+  };
+
+  const restartLiveListening = () => {
+    if (!liveConversationRef.current) return;
+    setTimeout(() => {
+      if (liveConversationRef.current && !isLoading && !recognitionRef.current) {
+        startListening({ submitOnResult: true, quiet: true });
+      }
+    }, 550);
   };
 
   // Speech-to-Text (Voice Input)
-  const startListening = () => {
+  const startListening = ({ submitOnResult = liveConversationRef.current, quiet = false } = {}) => {
+    if (recognitionRef.current) return;
+
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       toast.error("Speech recognition not supported. Try Chrome or Edge.");
+      setLiveConversationActive(false);
+      liveConversationRef.current = false;
       return;
     }
 
@@ -548,24 +983,24 @@ const ChatBox = () => {
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
       
-      recognition.lang = getLanguageLocale(language);
+      recognition.lang = language === "auto" ? (navigator.language || "hi-IN") : getLanguageLocale(language);
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
 
       setIsListening(true);
-      toast.success("🎤 Listening... Speak now!");
+      if (!quiet) toast.success("Listening... Speak now!");
 
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         console.log('Transcript:', transcript);
-        if (liveVoiceMode) {
+        if (submitOnResult) {
           setInput("");
-          submitQuestion(transcript);
+          submitQuestion(transcript, { fromLiveConversation: true });
         } else {
           setInput(prev => prev + (prev ? ' ' : '') + transcript);
         }
-        toast.success("✓ Voice captured!");
+        toast.success("Voice captured");
         setIsListening(false);
       };
 
@@ -577,6 +1012,8 @@ const ChatBox = () => {
           toast.error("No speech detected. Please try again.");
         } else if (event.error === 'not-allowed') {
           toast.error("Microphone access denied. Please allow permissions.");
+          setLiveConversationActive(false);
+          liveConversationRef.current = false;
         } else if (event.error === 'network') {
           toast.error("Network error. Check your connection.");
         } else {
@@ -598,14 +1035,33 @@ const ChatBox = () => {
     }
   };
 
-  const stopListening = () => {
+  const stopListening = (showNotice = true) => {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsListening(false);
-    toast.info("Microphone stopped");
+    if (showNotice) toast.info("Microphone stopped");
   };
 
-  const submitQuestion = async (questionText) => {
+  const startLiveConversation = () => {
+    setLiveVoiceMode(true);
+    setVoiceEnabled(true);
+    setAutoPlay(true);
+    liveConversationRef.current = true;
+    setLiveConversationActive(true);
+    stopSpeaking(false);
+    startListening({ submitOnResult: true });
+  };
+
+  const stopLiveConversation = () => {
+    liveConversationRef.current = false;
+    setLiveConversationActive(false);
+    stopListening(false);
+    stopSpeaking(false);
+    toast.info("Live conversation stopped");
+  };
+
+  const submitQuestion = async (questionText, options = {}) => {
+    const { fromLiveConversation = false } = options;
     const cleanQuestion = questionText.trim();
 
     if (isLoading || !cleanQuestion) {
@@ -616,10 +1072,31 @@ const ChatBox = () => {
     const userMsg = { role: "user", content: cleanQuestion };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+
+    if (fromLiveConversation && !isSpiritualQuestion(cleanQuestion)) {
+      const assistantMsg = {
+        role: "assistant",
+        content: getLiveConversationReply(cleanQuestion, language),
+        sources: [],
+        providers: "Live conversation",
+        sourceCount: 0,
+      };
+
+      setMessages((prev) => {
+        const newMessages = [...prev, assistantMsg];
+        setTimeout(() => {
+          speakText(assistantMsg.content, newMessages.length - 1, restartLiveListening);
+        }, 250);
+        return newMessages;
+      });
+
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const result = await askFromTranscript(cleanQuestion);
+      const result = await askFromTranscript(cleanQuestion, fromLiveConversation ? "auto" : undefined);
       const assistantMsg = {
         role: "assistant",
         content: result?.answer || "🙏 I couldn't find an answer in the transcript. Please ask another question.",
@@ -632,10 +1109,17 @@ const ChatBox = () => {
         const newMessages = [...prev, assistantMsg];
         
         // Auto-play the response if enabled
-        if (autoPlay && voiceEnabled && result?.answer) {
+        const shouldSpeak = (autoPlay || fromLiveConversation) && voiceEnabled && result?.answer;
+        if (shouldSpeak) {
           setTimeout(() => {
-            speakText(assistantMsg.content, newMessages.length - 1);
+            speakText(
+              assistantMsg.content,
+              newMessages.length - 1,
+              fromLiveConversation ? restartLiveListening : undefined
+            );
           }, 500);
+        } else if (fromLiveConversation) {
+          restartLiveListening();
         }
         
         return newMessages;
@@ -652,10 +1136,11 @@ const ChatBox = () => {
         ...prev,
         {
           role: "assistant",
-          content: "⚠️ The AI model is temporarily busy. Please try again after a few seconds.",
+          content: `⚠️ ${error instanceof Error ? error.message : "Server se connection nahi ho paaya. Dobara try karein."}`,
         },
       ]);
       toast.error("Failed to get response");
+      if (fromLiveConversation) restartLiveListening();
     } finally {
       setIsLoading(false);
     }
@@ -670,16 +1155,19 @@ const ChatBox = () => {
   const clearChat = () => {
     localStorage.removeItem("chat_history");
     setMessages([]);
+    liveConversationRef.current = false;
+    setLiveConversationActive(false);
+    stopListening(false);
     stopSpeaking();
     toast.success("Chat history cleared!");
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto p-6 rounded-2xl border border-yellow-400/40 shadow-[0_0_40px_rgba(255,215,0,0.25)] bg-gradient-to-br from-yellow-200/10 via-yellow-100/5 to-transparent backdrop-blur-2xl text-yellow-100 relative overflow-hidden transition-all duration-300">
+    <div className="w-full max-w-4xl mx-auto p-4 sm:p-6 rounded-2xl border border-yellow-400/40 shadow-[0_0_40px_rgba(255,215,0,0.25)] bg-gradient-to-br from-yellow-200/10 via-yellow-100/5 to-transparent backdrop-blur-2xl text-yellow-100 relative overflow-hidden transition-all duration-300">
       
       {/* Toast Notification */}
       {showToast && (
-        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg backdrop-blur-md border ${
+        <div className={`fixed top-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-sm z-50 p-4 rounded-lg shadow-lg backdrop-blur-md border ${
           showToast.type === 'success' ? 'bg-green-500/20 border-green-400 text-green-100' :
           showToast.type === 'error' ? 'bg-red-500/20 border-red-400 text-red-100' :
           showToast.type === 'warning' ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' :
@@ -693,41 +1181,47 @@ const ChatBox = () => {
       <div className="absolute inset-0 bg-gradient-to-b from-yellow-200/10 to-yellow-900/5 pointer-events-none rounded-2xl"></div>
 
       {/* Header */}
-      <div className="flex flex-wrap justify-between items-center mb-4 border-b border-yellow-400/30 pb-3 relative z-10">
-        <h2 className="text-lg font-semibold text-yellow-300">
-          🕉️ Premand Ji Chat Assistant
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4 border-b border-yellow-400/30 pb-3 relative z-10">
+        <h2 className="text-base sm:text-lg font-semibold text-yellow-300">
+          🕉️ Premaanand Ji Chat Assistant
         </h2>
 
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-3 sm:flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
-              setLiveVoiceMode((value) => !value);
-              setAutoPlay(true);
-              setVoiceEnabled(true);
+              if (liveConversationActive) {
+                stopLiveConversation();
+              } else {
+                startLiveConversation();
+              }
             }}
-            className={`border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 ${
-              liveVoiceMode ? "bg-yellow-500/30" : "bg-yellow-400/10"
+            className={`border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 px-2 sm:px-3 ${
+              liveConversationActive ? "bg-red-500/30 border-red-300" : liveVoiceMode ? "bg-yellow-500/30" : "bg-yellow-400/10"
             }`}
+            title="Toggle live voice conversation"
           >
-            <Radio className="w-4 h-4 mr-1" /> Live Voice
+            {liveConversationActive ? <StopCircle className="w-4 h-4 sm:mr-1" /> : <Radio className="w-4 h-4 sm:mr-1" />}
+            <span className="hidden sm:inline">{liveConversationActive ? "Stop Live" : "Live Voice"}</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setShowSettings((p) => !p)}
-            className="border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 bg-yellow-400/10"
+            className="border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 bg-yellow-400/10 px-2 sm:px-3"
+            title="Preferences"
           >
-            <Settings2 className="w-4 h-4 mr-1" /> Preferences
+            <Settings2 className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Preferences</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={clearChat}
-            className="border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 bg-yellow-400/10"
+            className="border-yellow-400 text-yellow-200 hover:bg-yellow-800/10 bg-yellow-400/10 px-2 sm:px-3"
+            title="Clear chat"
           >
-            <Trash2 className="w-4 h-4 mr-1" /> Clear
+            <Trash2 className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Clear</span>
           </Button>
         </div>
       </div>
@@ -766,7 +1260,7 @@ const ChatBox = () => {
                 onChange={(e) => setTone(e.target.value)}
                 className="w-full p-2 rounded-lg border border-yellow-400 bg-black/70 text-yellow-100 focus:ring-2 focus:ring-yellow-400"
               >
-                <option value="premand">Premand Ji Style (Devotional)</option>
+                <option value="premand">Premaanand Ji Style (Devotional)</option>
                 <option value="brief">Brief & Clear</option>
                 <option value="detailed">Detailed Explanation</option>
               </select>
@@ -842,8 +1336,25 @@ const ChatBox = () => {
 
       <VideoSectionPlayer source={activeSource} onClose={() => setActiveSource(null)} />
 
+      <VoiceCallPanel
+        active={liveConversationActive}
+        isListening={isListening}
+        isLoading={isLoading}
+        isSpeaking={isSpeaking}
+        language={language}
+        onStart={startLiveConversation}
+        onStop={stopLiveConversation}
+        onToggleMic={() => {
+          if (isListening) {
+            stopListening();
+          } else {
+            startListening({ submitOnResult: true });
+          }
+        }}
+      />
+
       {/* Chat Section */}
-      <div className="space-y-6 mb-6 max-h-[60vh] overflow-y-auto px-2 relative z-10 scroll-smooth">
+      <div className="space-y-5 mb-5 h-[58vh] min-h-[360px] overflow-y-auto px-1 sm:px-2 relative z-10 scroll-smooth">
         {messages.length === 0 && (
           <div className="text-center py-10">
             <p className="text-yellow-500 italic mb-4">
@@ -857,7 +1368,7 @@ const ChatBox = () => {
 
         {messages.map((message, index) => (
           <div key={index}>
-            <MessageBubble message={message} onPlaySource={setActiveSource} />
+            <MessageBubble message={message} onPlaySource={setActiveSource} language={language} />
             {message.role === "assistant" && voiceEnabled && (
               <div className="flex justify-end mt-2 gap-2">
                 <Button
@@ -870,7 +1381,7 @@ const ChatBox = () => {
                       speakText(message.content, index);
                     }
                   }}
-                  className="border-yellow-400/60 text-yellow-200 hover:bg-yellow-800/20 bg-yellow-400/10 transition-all"
+                  className="border-yellow-400/60 text-yellow-200 hover:bg-yellow-800/20 bg-yellow-400/10 transition-all rounded-full"
                   disabled={isSpeaking && currentSpeakingIndex !== index}
                 >
                   {currentSpeakingIndex === index ? (
@@ -904,8 +1415,8 @@ const ChatBox = () => {
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask your question about Maharaj Ji's divine words... (Type or click mic to speak)"
-            className="min-h-[100px] pr-14 resize-none bg-black/40 border-yellow-400/60 focus:ring-2 focus:ring-yellow-400/70 focus:border-yellow-500 transition-all rounded-xl text-yellow-100 placeholder:text-yellow-300/50 backdrop-blur-lg"
+            placeholder={liveVoiceMode ? "Live voice is on. Speak or type your question..." : "Ask your question... type or use mic"}
+            className="min-h-[88px] sm:min-h-[100px] pr-14 resize-none bg-black/40 border-yellow-400/60 focus:ring-2 focus:ring-yellow-400/70 focus:border-yellow-500 transition-all rounded-xl text-yellow-100 placeholder:text-yellow-300/50 backdrop-blur-lg"
             disabled={isLoading || isListening}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -918,7 +1429,7 @@ const ChatBox = () => {
             type="button"
             onClick={isListening ? stopListening : startListening}
             disabled={isLoading}
-            className={`absolute right-2 bottom-2 p-2 h-auto transition-all ${
+            className={`absolute right-2 bottom-2 p-2 h-11 w-11 rounded-full transition-all ${
               isListening 
                 ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
                 : 'bg-yellow-500/20 hover:bg-yellow-500/30'
@@ -936,7 +1447,7 @@ const ChatBox = () => {
         <Button
           onClick={handleSubmit}
           disabled={isLoading || !input.trim() || isListening}
-          className="w-full bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-300 hover:opacity-90 transition-opacity text-black font-semibold tracking-wide rounded-xl py-6 shadow-[0_0_20px_rgba(255,215,0,0.4)] disabled:opacity-50"
+          className="w-full bg-gradient-to-r from-yellow-500 via-amber-400 to-yellow-300 hover:opacity-90 transition-opacity text-black font-semibold tracking-wide rounded-xl py-5 sm:py-6 shadow-[0_0_20px_rgba(255,215,0,0.4)] disabled:opacity-50"
           size="lg"
         >
           {isLoading ? (
