@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle, PlayCircle, X, Radio, ChevronDown, ChevronUp } from "lucide-react";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV
+  ? "http://localhost:5001"
+  : "https://bhakti-marg-gyan.onrender.com");
 
 // MessageBubble Component
 const formatTime = (seconds = 0) => {
