@@ -1,10 +1,21 @@
 
-name: Bhakti Marg Gyan - Production Deployment
+name: Bhakti Marg Gyan - Frontend Deployment
 
 on:
   push:
     branches:
       - main
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "tsconfig*.json"
+      - "postcss.config.js"
+      - "tailwind.config.ts"
+      - ".github/workflows/frontend-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -12,12 +23,12 @@ permissions:
   id-token: write
 
 concurrency:
-  group: bhakti-production-deployment
+  group: bhakti-frontend-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to AWS EC2
+    name: Build and Deploy Frontend
     runs-on: ubuntu-latest
 
     steps:
@@ -30,111 +41,44 @@ jobs:
           role-to-assume: arn:aws:iam::462713566794:role/bhakti-github-actions-deploy-role
           aws-region: us-east-1
 
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
 
-      - name: Deploy through AWS Systems Manager
-        shell: bash
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production frontend
+        run: npm run build
+
+      - name: Verify build output
         run: |
           set -euo pipefail
 
-          DEPLOY_SCRIPT=$(cat <<'SCRIPT'
-          set -Eeuo pipefail
+          if [ ! -f dist/index.html ]; then
+            echo "Build failed: dist/index.html not found"
+            exit 1
+          fi
 
-          echo "Starting deployment as ubuntu user..."
+          echo "Production build verified."
+          du -sh dist/
 
-          sudo -iu ubuntu bash -s <<'USER_SCRIPT'
-          set -Eeuo pipefail
+      - name: Deploy frontend to S3
+        run: |
+          aws s3 sync dist/ \
+            s3://bhakti-marg-gyan-frontend-462713566794/ \
+            --delete
 
-          cd /home/ubuntu/bhakti-marg-gyan
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E1II0MHZLAWX19 \
+            --paths "/*"
 
-          echo "Fetching latest production code..."
-          git fetch origin main
-          git reset --hard origin/main
-
-          cd /home/ubuntu/bhakti-marg-gyan/server
-
-          echo "Installing backend dependencies..."
-          npm ci
-
-          echo "Restarting PM2 application..."
-          pm2 restart bhakti-marg-server-main --update-env
-
-          echo "Checking application health..."
-
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:5001/api/seed/status >/dev/null; then
-              echo "Deployment successful. Health check passed."
-              exit 0
-            fi
-
-            echo "Health check attempt $i/30..."
-            sleep 2
-          done
-
-          echo "Health check failed."
-          pm2 logs bhakti-marg-server-main --lines 50 --nostream
-          exit 1
-          USER_SCRIPT
-          SCRIPT
-          )
-
-          PARAMETERS=$(jq -n --arg command "$DEPLOY_SCRIPT" \
-            '{commands: [$command]}')
-
-          COMMAND_ID=$(aws ssm send-command \
-            --document-name "AWS-RunShellScript" \
-            --targets "Key=tag:DeploymentTarget,Values=bhakti-backend" \
-            --parameters "$PARAMETERS" \
-            --comment "GitHub Actions deployment ${GITHUB_SHA}" \
-            --max-concurrency "1" \
-            --max-errors "0" \
-            --query "Command.CommandId" \
-            --output text)
-
-          echo "SSM Command ID: $COMMAND_ID"
-
-          for attempt in $(seq 1 60); do
-
-            RESULT=$(aws ssm list-command-invocations \
-              --command-id "$COMMAND_ID" \
-              --details \
-              --output json)
-
-            COUNT=$(echo "$RESULT" | jq '.CommandInvocations | length')
-
-            if [ "$COUNT" -gt 0 ]; then
-
-              PENDING=$(echo "$RESULT" | jq \
-                '[.CommandInvocations[] |
-                select(.Status != "Success" and
-                       .Status != "Failed" and
-                       .Status != "TimedOut" and
-                       .Status != "Cancelled")] | length')
-
-              if [ "$PENDING" -eq 0 ]; then
-
-                echo "$RESULT" | jq -r \
-                  '.CommandInvocations[] |
-                  "Instance: \(.InstanceId)\nStatus: \(.Status)\nOutput:\n\(.CommandPlugins[0].Output // "No output")"'
-
-                FAILED=$(echo "$RESULT" | jq \
-                  '[.CommandInvocations[] |
-                  select(.Status != "Success")] | length')
-
-                if [ "$FAILED" -gt 0 ]; then
-                  echo "Deployment failed."
-                  exit 1
-                fi
-
-                echo "All deployment targets succeeded."
-                exit 0
-              fi
-            fi
-
-            echo "Waiting for deployment... ($attempt/60)"
-            sleep 10
-          done
-
-          echo "Deployment timed out. Check AWS Systems Manager Run Command."
-          exit 1
+      - name: Deployment summary
+        run: |
+          echo "Frontend deployment completed."
+          echo "S3 bucket: bhakti-marg-gyan-frontend-462713566794"
+          echo "CloudFront: E1II0MHZLAWX19"
