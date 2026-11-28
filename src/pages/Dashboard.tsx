@@ -56,10 +56,11 @@ interface SeedStatus {
   progress?: number;
 }
 
-// Use local backend in development, production URL in production
-const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-  ? "http://localhost:5001"
-  : "https://bhakti-marg-gyan.onrender.com";
+// Use a configurable API URL, with localhost only for local development.
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV
+    ? "http://localhost:5001"
+    : "http://bhakti-public-alb-1037021961.us-east-1.elb.amazonaws.com")).replace(/\/$/, "");
 
 const Dashboard = () => {
   const [videos, setVideos] = useState<Video[]>([]);

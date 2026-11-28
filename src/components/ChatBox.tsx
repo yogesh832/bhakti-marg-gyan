@@ -6,7 +6,7 @@ import { Send, Loader2, Settings2, Trash2, Volume2, VolumeX, Mic, StopCircle, Pl
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV
   ? "http://localhost:5001"
-  : "https://bhakti-marg-gyan.onrender.com");
+  : "http://bhakti-public-alb-1037021961.us-east-1.elb.amazonaws.com").replace(/\/$/, "");
 
 // MessageBubble Component
 const formatTime = (seconds = 0) => {
