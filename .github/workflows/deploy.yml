@@ -1,0 +1,127 @@
+
+name: Bhakti Marg Gyan - Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bhakti-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::462713566794:role/bhakti-github-actions-deploy-role
+          aws-region: us-east-1
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Deploy through AWS Systems Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEPLOY_SCRIPT=$(cat <<'SCRIPT'
+          set -Eeuo pipefail
+
+          cd /home/ubuntu/bhakti-marg-gyan
+
+          echo "Fetching latest production code..."
+          git fetch origin main
+          git reset --hard origin/main
+
+          cd server
+
+          echo "Installing backend dependencies..."
+          npm ci
+
+          echo "Restarting PM2 application..."
+          pm2 restart bhakti-marg-server-main --update-env
+
+          echo "Checking application health..."
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5001/api/seed/status >/dev/null; then
+              echo "Deployment successful. Health check passed."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Health check failed."
+          pm2 logs bhakti-marg-server-main --lines 50 --nostream
+          exit 1
+          SCRIPT
+          )
+
+          PARAMETERS=$(jq -n --arg command "$DEPLOY_SCRIPT" \
+            '{commands: [$command]}')
+
+          COMMAND_ID=$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:DeploymentTarget,Values=bhakti-backend" \
+            --parameters "$PARAMETERS" \
+            --comment "GitHub Actions deployment ${GITHUB_SHA}" \
+            --max-concurrency "1" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          for attempt in $(seq 1 60); do
+            RESULT=$(aws ssm list-command-invocations \
+              --command-id "$COMMAND_ID" \
+              --details \
+              --output json)
+
+            COUNT=$(echo "$RESULT" | jq '.CommandInvocations | length')
+
+            if [ "$COUNT" -gt 0 ]; then
+              PENDING=$(echo "$RESULT" | jq \
+                '[.CommandInvocations[] |
+                select(.Status != "Success" and
+                       .Status != "Failed" and
+                       .Status != "TimedOut" and
+                       .Status != "Cancelled")] | length')
+
+              if [ "$PENDING" -eq 0 ]; then
+                echo "$RESULT" | jq -r \
+                  '.CommandInvocations[] |
+                  "Instance: \(.InstanceId)\nStatus: \(.Status)\nOutput:\n\(.CommandPlugins[0].Output // "No output")"'
+
+                FAILED=$(echo "$RESULT" | jq \
+                  '[.CommandInvocations[] | select(.Status != "Success")] | length')
+
+                if [ "$FAILED" -gt 0 ]; then
+                  echo "Deployment failed."
+                  exit 1
+                fi
+
+                echo "All deployment targets succeeded."
+                exit 0
+              fi
+            fi
+
+            echo "Waiting for deployment... ($attempt/60)"
+            sleep 10
+          done
+
+          echo "Deployment timed out. Check AWS Systems Manager Run Command."
+          exit 1
