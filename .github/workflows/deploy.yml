@@ -1,0 +1,84 @@
+
+name: Bhakti Marg Gyan - Frontend Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "tsconfig*.json"
+      - "postcss.config.js"
+      - "tailwind.config.ts"
+      - ".github/workflows/frontend-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bhakti-frontend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::462713566794:role/bhakti-github-actions-deploy-role
+          aws-region: us-east-1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production frontend
+        run: npm run build
+
+      - name: Verify build output
+        run: |
+          set -euo pipefail
+
+          if [ ! -f dist/index.html ]; then
+            echo "Build failed: dist/index.html not found"
+            exit 1
+          fi
+
+          echo "Production build verified."
+          du -sh dist/
+
+      - name: Deploy frontend to S3
+        run: |
+          aws s3 sync dist/ \
+            s3://bhakti-marg-gyan-frontend-462713566794/ \
+            --delete
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E1II0MHZLAWX19 \
+            --paths "/*"
+
+      - name: Deployment summary
+        run: |
+          echo "Frontend deployment completed."
+          echo "S3 bucket: bhakti-marg-gyan-frontend-462713566794"
+          echo "CloudFront: E1II0MHZLAWX19"
