@@ -41,13 +41,18 @@ jobs:
           DEPLOY_SCRIPT=$(cat <<'SCRIPT'
           set -Eeuo pipefail
 
+          echo "Starting deployment as ubuntu user..."
+
+          sudo -iu ubuntu bash -s <<'USER_SCRIPT'
+          set -Eeuo pipefail
+
           cd /home/ubuntu/bhakti-marg-gyan
 
           echo "Fetching latest production code..."
           git fetch origin main
           git reset --hard origin/main
 
-          cd server
+          cd /home/ubuntu/bhakti-marg-gyan/server
 
           echo "Installing backend dependencies..."
           npm ci
@@ -56,17 +61,21 @@ jobs:
           pm2 restart bhakti-marg-server-main --update-env
 
           echo "Checking application health..."
+
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:5001/api/seed/status >/dev/null; then
               echo "Deployment successful. Health check passed."
               exit 0
             fi
+
+            echo "Health check attempt $i/30..."
             sleep 2
           done
 
           echo "Health check failed."
           pm2 logs bhakti-marg-server-main --lines 50 --nostream
           exit 1
+          USER_SCRIPT
           SCRIPT
           )
 
@@ -86,6 +95,7 @@ jobs:
           echo "SSM Command ID: $COMMAND_ID"
 
           for attempt in $(seq 1 60); do
+
             RESULT=$(aws ssm list-command-invocations \
               --command-id "$COMMAND_ID" \
               --details \
@@ -94,6 +104,7 @@ jobs:
             COUNT=$(echo "$RESULT" | jq '.CommandInvocations | length')
 
             if [ "$COUNT" -gt 0 ]; then
+
               PENDING=$(echo "$RESULT" | jq \
                 '[.CommandInvocations[] |
                 select(.Status != "Success" and
@@ -102,12 +113,14 @@ jobs:
                        .Status != "Cancelled")] | length')
 
               if [ "$PENDING" -eq 0 ]; then
+
                 echo "$RESULT" | jq -r \
                   '.CommandInvocations[] |
                   "Instance: \(.InstanceId)\nStatus: \(.Status)\nOutput:\n\(.CommandPlugins[0].Output // "No output")"'
 
                 FAILED=$(echo "$RESULT" | jq \
-                  '[.CommandInvocations[] | select(.Status != "Success")] | length')
+                  '[.CommandInvocations[] |
+                  select(.Status != "Success")] | length')
 
                 if [ "$FAILED" -gt 0 ]; then
                   echo "Deployment failed."
